@@ -1,0 +1,253 @@
+# DataHub v1.3.0.1 最小化部署
+# 参考: docs/DataHub v1.3.0.1 Docker Compose 配置方案.md
+services:
+
+  # ── 1. MySQL ───────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: datahub-mysql
+    restart: always
+    ports:
+      - "23307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: datahub
+      MYSQL_DATABASE: datahub
+      MYSQL_USER: datahub
+      MYSQL_PASSWORD: datahub
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_bin --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 2. Elasticsearch ────────────────────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:7.17.9
+    container_name: datahub-elasticsearch
+    restart: always
+    ports:
+      - "23308:9200"
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"yellow\"\\|\"status\":\"green\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── 3. Zookeeper ────────────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: datahub-zookeeper
+    restart: always
+    ports:
+      - "22181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # ── 4. Kafka ───────────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: datahub-kafka
+    hostname: kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # ── 5. Schema Registry ──────────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.9.2
+    container_name: datahub-schema-registry
+    hostname: schema-registry
+    restart: always
+    ports:
+      - "28081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+    depends_on:
+      kafka:
+        condition: service_started
+
+  # ── 7. DataHub MySQL 初始化 ────────────────────────────────────────────────
+  datahub-mysql-setup:
+    image: acryldata/datahub-mysql-setup:v1.3.0.1
+    container_name: datahub-mysql-setup
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: datahub
+      MYSQL_DATABASE: datahub
+    restart: on-failure
+
+  # ── 8. DataHub Elasticsearch 初始化 ───────────────────────────────────────
+  datahub-elasticsearch-setup:
+    image: acryldata/datahub-elasticsearch-setup:v1.3.0.1
+    container_name: datahub-elasticsearch-setup
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+    restart: on-failure
+
+  # ── 8. DataHub Upgrade（创建 ES indices）─────────────────────────────────
+  datahub-upgrade:
+    image: acryldata/datahub-upgrade:v1.3.0.1
+    container_name: datahub-upgrade
+    user: root
+    depends_on:
+      datahub-mysql-setup:
+        condition: service_completed_successfully
+      datahub-elasticsearch-setup:
+        condition: service_completed_successfully
+    environment:
+      EBEAN_DATASOURCE_HOST: mysql:3306
+      EBEAN_DATASOURCE_USERNAME: datahub
+      EBEAN_DATASOURCE_PASSWORD: datahub
+      EBEAN_DATASOURCE_URL: jdbc:mysql://mysql:3306/datahub?verifyServerCertificate=false&useSSL=false&useUnicode=yes&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+      EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
+      KAFKA_BOOTSTRAP_SERVER: kafka:9092
+      KAFKA_SCHEMAREGISTRY_URL: http://schema-registry:8081
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_USE_SSL: "false"
+      ELASTICSEARCH_INDEX_BUILDER_MAPPINGS_REINDEX: "true"
+      ELASTICSEARCH_INDEX_BUILDER_SETTINGS_REINDEX: "true"
+      SKIP_EBEAN_CHECK: "true"
+      SKIP_KAFKA_CHECK: "true"
+      SKIP_ELASTICSEARCH_CHECK: "true"
+      GRAPH_SERVICE_IMPL: elasticsearch
+      BACKFILL_BROWSE_PATHS_V2: "true"
+      METADATA_SERVICE_AUTH_ENABLED: "false"
+      JAVA_OPTS: "-Xms512m -Xmx512m"
+    restart: on-failure
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "mkdir -p /metadata-models/src/main/resources && cp /datahub/datahub-gms/resources/entity-registry.yml /metadata-models/src/main/resources/ && /datahub/datahub-upgrade/scripts/start.sh -u SystemUpdate"
+
+  # ── 9. DataHub GMS ─────────────────────────────────────────────────────────
+  datahub-gms:
+    image: acryldata/datahub-gms:v1.3.0.1
+    container_name: datahub-gms
+    user: root
+    depends_on:
+      datahub-upgrade:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_started
+      schema-registry:
+        condition: service_started
+    environment:
+      DATAHUB_SERVER_TYPE: quickstart
+      DATAHUB_TELEMETRY_ENABLED: "false"
+      EBEAN_DATASOURCE_DRIVER: com.mysql.cj.jdbc.Driver
+      EBEAN_DATASOURCE_HOST: mysql:3306
+      EBEAN_DATASOURCE_URL: jdbc:mysql://mysql:3306/datahub?verifyServerCertificate=false&useSSL=false&useUnicode=yes&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+      EBEAN_DATASOURCE_USERNAME: datahub
+      EBEAN_DATASOURCE_PASSWORD: datahub
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_USE_SSL: "false"
+      KAFKA_BOOTSTRAP_SERVER: kafka:9092
+      KAFKA_PROPERTIES_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_SCHEMAREGISTRY_URL: http://schema-registry:8081
+      SKIP_EBEAN_CHECK: "true"
+      SKIP_KAFKA_CHECK: "true"
+      SKIP_ELASTICSEARCH_CHECK: "true"
+      GRAPH_SERVICE_IMPL: elasticsearch
+      JAVA_OPTS: "-Xms1g -Xmx1g"
+      METADATA_SERVICE_AUTH_ENABLED: "false"
+    restart: always
+    ports:
+      - "23309:8080"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "mkdir -p /metadata-models/src/main/resources && cp /datahub/datahub-gms/resources/entity-registry.yml /metadata-models/src/main/resources/ && /datahub/datahub-gms/scripts/start.sh"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS --fail http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  # ── 10. DataHub MAE Consumer（Kafka → Elasticsearch 索引）───────────────
+  datahub-mae-consumer:
+    image: acryldata/datahub-mae-consumer:v1.3.0.1
+    container_name: datahub-mae-consumer
+    user: root
+    depends_on:
+      kafka:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVER: kafka:9092
+      SKIP_KAFKA_CHECK: "false"
+      SKIP_ELASTICSEARCH_CHECK: "false"
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_USE_SSL: "false"
+      GRAPH_SERVICE_IMPL: elasticsearch
+      SKIP_NEO4J_CHECK: "true"
+      JAVA_OPTS: "-Xms512m -Xmx512m"
+    restart: always
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "mkdir -p /metadata-models/src/main/resources && cp /datahub/datahub-mae-consumer/resources/entity-registry.yml /metadata-models/src/main/resources/ && /datahub/datahub-mae-consumer/scripts/start.sh"
+
+  # ── 8. DataHub Frontend ────────────────────────────────────────────────────
+  datahub-frontend:
+    image: acryldata/datahub-frontend-react:v1.3.0.1
+    container_name: datahub-frontend
+    restart: always
+    ports:
+      - "23310:9002"
+    depends_on:
+      datahub-gms:
+        condition: service_healthy
+    environment:
+      DATAHUB_GMS_HOST: datahub-gms
+      DATAHUB_GMS_PORT: 8080
+      DATAHUB_APP_VERSION: v1.3.0.1
+      DATAHUB_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      DATAHUB_PLAY_MEM_BUFFER_SIZE: 10MB
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS --fail http://localhost:9002 | grep -q ''"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  mysql-data:
+  es-data:
