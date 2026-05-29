@@ -1,0 +1,53 @@
+[project]
+name = "dg-demo"
+version = "0.1.0"
+description = "A公司异构数据模拟器 - 数据治理演示环境"
+requires-python = ">=3.10"
+dependencies = [
+    # ── 数据处理 ──────────────────────────
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "numpy>=1.26",
+    # ── 数据湖 ────────────────────────────
+    "pyspark>=3.4",
+    "deltalake>=0.12",
+    # ── 数据质量 ──────────────────────────
+    "great-expectations>=0.18",
+    # ── 时序数据 ──────────────────────────
+    "psycopg2-binary>=2.9",
+    "sqlalchemy>=2.0",
+    # ── 消息队列 ──────────────────────────
+    "kafka-python>=2.0",
+    # ── 对象存储 ──────────────────────────
+    "boto3>=1.28",
+    # ── OLAP ─────────────────────────────
+    "pymysql>=1.1",
+    # ── HTTP ─────────────────────────────
+    "requests>=2.31",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.dg-demo.data_scale]
+sap_vbak_rows = 4_000_000
+sap_vbap_ratio = 2.5
+lims_rows = 2_000_000
+pi_tags = 30
+pi_interval_min = 10
+pi_years = 2
+oa_rows = 3_000_000
+
+[tool.dg-demo.data_quality]
+sap_vbak_issue_rate = 0.02
+sap_vbap_issue_rate = 0.02
+pi_missing_rate = 0.005
+pi_outlier_rate = 0.01
+lims_issue_rate = 0.02
+oa_issue_rate = 0.02
