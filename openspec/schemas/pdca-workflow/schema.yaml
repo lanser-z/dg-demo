@@ -1,0 +1,189 @@
+name: pdca-workflow
+version: 1
+description: 渐进节迭代式工作流 - explore → proposal → specs → design → tasks → apply → verify → archive
+artifacts:
+  - id: explore
+    generates: brainstorm.md
+    description: 变更价值发掘文档
+    template: brainstorm.md
+    instruction: |
+      记录有价值的变更是怎么被发现的。
+      
+      章节：
+      - **Feedback**: 用户、开发者、运维人员或投资人对现有系统的反馈，记录反馈来自什么角色、核心思想是什么
+      - **Ideas**: 针对Feedback 我们有哪些想法，以列表的形式整理出来
+      - **Value**: 站在系统非功能属性的视角，idea 的价值价值如何、是否值得转为变更
+      - **Plan**: 立即实现一个idea，或是再等等其他反馈
+
+      重要提示：Ideas 是头脑风暴的结果，在头脑风暴时不应受限于系统已有实现和设计，应积极使用网络检索、深入研究等技能探索更广阔的可能性。
+      Value 怎要审视idea 对现有系统的影响、实现的代价，得不偿失或毁誉参半的事要谨慎
+      本阶段应合理使用deepwiki和navily从公开场合收集信息。
+    requires: []
+      
+  - id: proposal
+    generates: proposal.md
+    description: 变更的提案概述文档
+    template: proposal.md
+    instruction: |
+      创建提案文档，阐明为什么需要这项变更。
+
+      章节：
+      - **Why**：用 1-2 句话描述问题或机会。这解决了什么问题？为什么是现在？
+      - **What Changes**：变更的列表。对新增能力、修改或删除要具体说明。破坏性变更标记为 **BREAKING**。
+      - **Capabilities**：识别将要创建或修改的规范：
+        - **New Capabilities**：列出将要引入的能力。每一项都会成为新的 `specs/<name>/spec.md`。使用短横线命名（kebab-case），例如 `user-auth`、`data-export`。
+        - **Modified Capabilities**：列出其 REQUIREMENTS 正在变更的现有能力。仅当规范级别的行为发生变化时才包含（不仅仅是实现细节）。每一项都需要一个 delta spec 文件。检查 `openspec/specs/` 中现有的规范名称。如果没有需求变更则留空。
+      - **Impact**：受影响的代码、API、依赖或系统。
+
+      重要提示：Capabilities 章节至关重要。它在 proposal 和 specs 阶段之间建立了契约。
+      在填写之前先调研现有的规范。
+      这里列出的每一项能力都需要一个对应的规范文件。
+
+      保持简洁（1-2 页）。聚焦在"为什么"而不是"怎么做"——实现细节属于 design.md。
+ 
+      这是基础——specs、design 和 tasks 都建立在这之上。
+    requires: []
+
+  - id: specs
+    generates: specs/**/*.md
+    description: 变更的详细规范
+    template: spec.md
+    instruction: |
+      创建规范文件，定义系统应该做什么。
+
+      为提案中 Capabilities 章节列出的每一项能力创建一个规范文件。
+      - New capabilities：使用提案中定义的短横线名称（kebab-case）（specs/<capability>/spec.md）。
+      - Modified Capabilities：创建delta spec 时，新建的specs/<capability>/spec.md 文件必须使用 openspec/specs/<capability>/ 中已有的规范文件夹名。
+            
+      Delta 操作（使用 ## 标题）：
+      - **ADDED Requirements**：新增需求
+      - **MODIFIED Requirements**： 需求变更 —— MUST 包含完整的更新后内容
+      - **REMOVED Requirements**：废弃需求 —— MUST 包含 **Reason** 和 **Migration**
+      - **RENAMED Requirements**：仅名称变更 —— 使用 FROM:/TO: 格式
+
+      格式要求：
+      - 每个需求：`### Requirement: <name>`，后跟描述
+      - 对规范性需求使用 SHALL/MUST（避免使用 should/may）
+      - 每个场景：`#### Scenario: <name>`，使用 WHEN/THEN 格式
+      - **关键**：场景必须使用恰好 4 个井号（`####`）。使用 3 个井号或列表格式会静默失败。
+      - 每个需求必须至少有一个场景。
+
+      MODIFIED Requirements 工作流程：
+      1. 在 openspec/specs/<capability>/spec.md 中定位现有需求
+      2. 复制整个需求块（从 `### Requirement:` 到所有场景）
+      3. 粘贴到 `## MODIFIED Requirements` 下并编辑以反映新行为
+      4. 确保标题文本完全匹配（忽略空白差异）
+
+      常见陷阱：编写 MODIFIED Requirements 时只包含部分内容会在归档时丢失细节。如果只是添加新的关注点而不改变现有行为，请使用 ADDED。
+
+      示例：
+      ```
+      ## ADDED Requirements
+
+      ### Requirement: User can export data
+      The system SHALL allow users to export their data in CSV format.
+
+      #### Scenario: Successful export
+      - **WHEN** user clicks "Export" button
+      - **THEN** system downloads a CSV file with all user data
+
+      ## REMOVED Requirements
+
+      ### Requirement: Legacy export
+      **Reason**: Replaced by new export system
+      **Migration**: Use new export endpoint at /api/v2/export
+      ```
+
+      规范应该是可测试的——每个场景都是一个潜在的测试用例。
+    requires:
+      - proposal
+
+  - id: design
+    generates: design.md
+    description: 包含实现细节的技术设计文档
+    template: design.md
+    instruction: |
+      创建设计文档，解释如何实现这项变更。
+
+      何时包含 design.md（满足以下任一条件时创建）：
+      - 跨领域变更（多个服务/模块）或新的架构模式
+      - 新的外部依赖或重大的数据模型变更
+      - 安全、性能或迁移复杂性
+      - 编码前需要技术决策来消除歧义的情况
+
+      章节：
+      - **Context**：背景、当前状态、约束、利益相关者
+      - **Goals / Non-Goals**：此设计要实现什么、明确排除什么
+      - **Decisions**：关键技术选择及理由（为什么选择 X 而不是 Y？）。为每个决策包含备选方案。
+      - **Risks / Trade-offs**：已知限制、可能出错的地方。格式：[风险] → 缓解措施
+      - **Migration Plan**：部署步骤、回滚策略（可选）
+      - **Open Questions**：待解决的决策或未知问题
+
+      聚焦架构和方法，不写逐行实现。
+      引用提案获取动机，引用规范获取需求。
+
+      优秀的设计文档会解释技术决策背后的"为什么"。
+    requires:
+      - proposal
+
+  - id: tasks
+    generates: tasks.md
+    description: 可追踪任务的实现清单
+    template: tasks.md
+    instruction: |
+      创建任务清单，拆解实现工作。
+
+      **重要：严格按照以下模板。** apply 阶段会解析复选框格式来追踪进度。不使用 `- [ ]` 的任务不会被追踪。
+
+      指南：
+      - 将相关任务分组在 ## 编号标题下
+      - 每个任务必须是复选框：`- [ ] X.Y 任务描述`
+      - 任务粒度应小到能在一个工作 session 内完成
+      - 按依赖关系排序（先做什么？）
+
+      示例：
+      ```
+      ## 1. Setup
+
+      - [ ] 1.1 Create new module structure
+      - [ ] 1.2 Add dependencies to package.json
+
+      ## 2. Core Implementation
+
+      - [ ] 2.1 Implement data export function
+      - [ ] 2.2 Add CSV formatting utilities
+      ```
+
+      引用规范了解需要构建什么，引用设计了解如何构建。
+      每个任务应该是可验证的——你知道什么时候完成了。
+    requires:
+      - specs
+      - design
+
+apply:
+  requires: [tasks]
+  tracks: tasks.md
+  instruction: |
+    ** 实现tasks时使用superpowers技能 **
+    必须检查git 状态，应该没有未提交的修改，否则先提示用户commit 或stash 当前的修改，并中断当前的apply环节。注意stash时不要隐藏未被git跟踪的文件
+
+    新创建一个git 分支，命名为 spec/{change-id}，change-id是当前变更的id（即子文件夹名）。在新分支上读取上下文文件，逐个完成待办任务，完成后标记为完成。
+
+    如果遇到阻碍或需要澄清，请暂停。在阻碍解决后再继续。
+
+verify:
+  requires: [proposal, design, tasks]
+  instruction: |
+    用git 获取当前分支上的修改，检查修改是否恰好响应了tasks.md 中的任务列表、不多也不少。
+    检查tasks.md 中的任务列表是否恰好实现了design.md 中的Goals 和Decisions、不多也不少。
+    检查design.md 中的改动是否恰好实现了proposal.md 中的Capabilities、不多也不少。
+
+    如果所有检查通过提交当前修改，否则提示哪里检查失败了。
+
+archive:
+  requires: [brainstorm, proposal, specs, design, tasks]
+  instruction: |
+    如果当前变更包括brainstorm.md 也应把它归入archive 文件夹。
+    
+    把所有合并、移动操作成功完成后，提醒用户合并分支。
+
