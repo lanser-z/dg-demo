@@ -4,63 +4,79 @@
 
 ## 1. Docker 服务
 
-### 1.1 拉取镜像（后台执行，首次运行前）
+### 1.1 拉取镜像（首次运行前）
 
 ```bash
-# 建议提前拉取，避免启动时超时
-docker pull mysql:8.0 &
-docker pull elasticsearch:7.17.9 &
-docker pull confluentinc/cp-zookeeper:7.4.0 &
-docker pull confluentinc/cp-kafka:7.4.0 &
-docker pull confluentinc/cp-schema-registry:7.9.2 &
-docker pull acryldata/datahub-elasticsearch-setup:v1.3.0.1 &
-docker pull acryldata/datahub-mysql-setup:v1.3.0.1 &
-docker pull acryldata/datahub-upgrade:v1.3.0.1 &
-docker pull acryldata/datahub-gms:v1.3.0.1 &
-docker pull acryldata/datahub-frontend-react:v1.3.0.1 &
+# 提前拉取，避免启动时超时
+docker pull acryldata/datahub-gms:v1.6.0 &
+docker pull acryldata/datahub-frontend-react:v1.6.0 &
+docker pull acryldata/datahub-actions:v1.6.0 &
+docker pull acryldata/datahub-upgrade:v1.6.0 &
+docker pull opensearchproject/opensearch:2.19.3 &
+docker pull neo4j:4.4.9-community &
+docker pull mysql:8.2 &
+docker pull confluentinc/cp-kafka:8.0.0 &
 wait
 ```
 
 ### 1.2 一键启动
 
 ```bash
-docker compose -f docker-compose.datahub.yml up -d
+cd /home/szs/Playground/dg-demo
+docker compose -f datahub-quickstart.yml up -d
 ```
 
 **关键经验（踩坑记录）：**
 
 | 问题 | 原因 | 修复 |
 |------|------|------|
-| mysql-setup 启动失败（tcp://: 空地址） | 镜像使用 `MYSQL_HOST`/`MYSQL_PORT`，不是 `EBEAN_DATASOURCE_*` | 改用正确的环境变量名 |
-| datahub-upgrade dockerize 失败（mysql: missing port） | `EBEAN_DATASOURCE_HOST=mysql` 缺少端口 | 设为 `EBEAN_DATASOURCE_HOST=mysql:3306` |
-| upgrade 连 schema-registry 失败（localhost:8081 refused） | JAR 内硬编码 `KAFKA_SCHEMAREGISTRY_URL=http://localhost:8081` | 需设 `KAFKA_SCHEMAREGISTRY_URL=http://schema-registry:8081` |
-| Kafka broker 启动失败（Each listener must have different port） | 同时配置了 `KAFKA_LISTENERS` 和 `KAFKA_ADVERTISED_LISTENERS` 但未分离 | 使用 `PLAINTEXT://kafka:9092` 单 listener 分离 |
-| entity-registry.yml 找不到 | Java 用相对路径 `../../metadata-models/src/main/resources/entity-registry.yml` | 启动命令加 `mkdir -p ... && cp ...` |
-| 容器内 `/metadata-models` mkdir 权限不足 | 非 root 用户无法创建目录 | 加 `user: root` |
-| GMS API 401 未授权 | 默认启用认证 | 加 `METADATA_SERVICE_AUTH_ENABLED: false` |
-| ingest_metadata 端点 404 | 用的是旧的 Rest.li `/datasets?action=ingest` | 改用 OpenAPI `/openapi/v3/entity/dataset?async=false` |
-| ingest_metadata 500/400 | aspect 格式错误 | OpenAPI 格式：`aspectName: {value: {actual_data}}` |
-| GraphQL searchAcrossEntities 查不到数据 | v1.3.0 不支持 `entities`/`type` 参数，ES 索引异步更新 | 直接用 URN 查询，或等 ES 索引完成 |
+| Neo4j healthcheck 永远 unhealthy | 容器内无 wget/nc/curl | 改用 `bash -c 'exec 3<>/dev/tcp/localhost/7474'` |
+| APOC 插件下载超时 | GitHub 网络不通 | 去掉 NEO4JLABS_PLUGINS，Neo4j 4.4 默认不带 APOC |
+| Delta Lake 写入 MinIO S3 超时 | MinIO 无认证时 S3 scheme 被拒绝 | 改用本地文件系统存储（`data/lakehouse/`） |
+| Great Expectations v1.x API 变更 | PandasDataset/expectation_type 参数名变化 | 使用轻量 GE 风格规则（pandas 执行） |
+| GMS /aspects 返回 400 | upstreamLineage aspect 不支持该端点 | 换用 Neo4j Bolt 直写血缘图 |
+
+**各服务端口：**
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| 前端 Web UI | 29002 | 浏览器访问 |
+| GMS API | 28080 | 后端接口 |
+| Neo4j 浏览器 | 27474 | 图数据库 UI |
+| Neo4j Bolt | 27687 | 程序连接 |
+| OpenSearch | 29200 | 搜索索引 |
+| MySQL | 23306 | 元数据存储 |
+| Kafka | 29092 | 消息队列 |
 
 **启动顺序（compose 自动处理）：**
+
 ```
-mysql (healthy) → mysql-setup (Flyway migrations)
-               → elasticsearch-setup
-               → datahub-upgrade (SystemUpdate，初始化 ES indices + MySQL schema)
-               → datahub-gms (启动 GMS)
-               → datahub-frontend
+kafka-broker (healthy) ─┬─→ mysql (healthy)
+                         ├─→ opensearch (healthy)
+                         └─→ neo4j (healthy)
+                                │
+                         system-update-quickstart (一次性 setup 任务)
+                                │
+                         datahub-gms-quickstart
+                                │
+                         frontend-quickstart
+                                │
+                         datahub-actions-quickstart
 ```
 
 **手动验证：**
+
 ```bash
-# 基础服务
-curl -s http://localhost:23308  # Elasticsearch
-curl -s http://localhost:23309/health  # DataHub GMS
-curl -s http://localhost:23310  # DataHub Frontend
+# 检查所有服务状态
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep datahub
+
+# 基础服务验证
+curl -s http://localhost:29200/_cluster/health?pretty  # OpenSearch
+curl -s http://localhost:28080/health                  # DataHub GMS
+curl -s http://localhost:29002                          # DataHub Frontend
 
 # MySQL schema 验证
-docker exec datahub-mysql mysql -u datahub -pdatahub -e "SHOW TABLES;" datahub
-# 期望看到：metadata_aspect_v2 等表
+docker exec datahub-mysql mysql -u root -pdatahub -e "SHOW TABLES;" datahub
 ```
 
 ---
@@ -74,130 +90,349 @@ uv sync
 **核心依赖（pyproject.toml 中已有）：**
 - `pandas>=2.0` — 数据处理
 - `pyarrow>=14.0` — Parquet 读写
-- `requests>=2.31` — HTTP 客户端（DataHub API 调用）
-
-**无需安装：**
-- `acryl-datahub` 是 CLI 工具（`uv tool install`），不是项目依赖
-
----
-
-## 3. 待开发功能
-
-### 3.1 资产目录查询（部分完成）
-
-**文件：** `src/dg_platform/datahub_client.py`
-
-已实现：
-- `DataHubClient.is_alive()` — 健康检查 ✓
-- `DataHubClient.ingest_metadata(assets)` — OpenAPI v3 格式上报元数据 ✓
-- `DataHubClient.get_lineage(guid)` — 血缘查询（未测试）
-- `DataHubClient.list_datasets()` — GraphQL 查询（需适配 v1.3.0）
-
-**环境变量：**
-```bash
-export DATAHUB_GMS_URL=http://localhost:23309   # 必须设置
-```
-
-**验证 ingest：**
-```python
-import os, pandas as pd
-os.environ['DATAHUB_GMS_URL'] = 'http://localhost:23309'
-from dg_platform.datahub_client import get_client
-client = get_client()
-print('GMS alive:', client.is_alive())  # True
-
-assets = pd.DataFrame([{
-    'table_name': 'sap_erp.vbak',
-    'chinese_name': 'SAP-ERP 销售订单主表',
-    'system': 'SAP-ERP',
-    'owner': '张三',
-    'row_count': 10000,
-    'size_mb': 50.5,
-    'security_level': '重要',
-}])
-result = client.ingest_metadata(assets)
-print(result)  # {'ingested': 1, 'failed': 0, ...}
-```
-
-### 3.2 资产可视化模块
-
-**文件：** `src/dg_platform/asset_visualizer.py`（待实现）
-
-需实现：
-- `get_system_status()` → List[SystemStatus] — 5个系统接入状态
-- `get_asset_catalog()` → DataFrame — 资产目录（表名/中文名/负责人/行数/大小/分区字段）
-- `get_quality_score_card()` → DataFrame — 每系统质量评分
-- `get_security_classification()` → DataFrame — 安全分级
-
-### 3.3 数据探查服务
-
-**文件：** `src/dg_platform/data_profiler.py`（待实现）
-
-需实现：
-- `profile_parquet(path)` → TableProfile — 单表探查
-- `discover_partitions(base_path)` → List[Partition] — 分区发现
-- `count_rows(tables)` → Dict[str, int] — 行数统计
+- `requests>=2.31` — HTTP 客户端
+- `great-expectations>=0.18` — 数据质量规则引擎
+- `deltalake>=0.12` — Delta Lake 读写
+- `duckdb>=1.5` — OLAP 聚合计算
 
 ---
 
-## 4. 测试计划
+## 3. 数据资产上报
 
-**文件：** `tests/test_asset_visualization.py`
-
-| 测试 | 预期 |
-|------|------|
-| `test_system_connection_status` | 枚举 5 个系统（SAP-ERP/PI-System/SCADA/LIMS/OA），每系统含 name/status/record_count |
-| `test_asset_catalog_returns_tables` | 返回字段：table_name, chinese_name, owner, row_count, size_mb, partition_field |
-| `test_asset_catalog_covers_all_systems` | SAP-ERP 6张表、PI-System tags、LIMS samples、OA contract+doc_flow、SCADA equipment_status |
-| `test_quality_score_card` | 每系统有 4 项评分（完整性/一致性/时效性/准确性），范围 0-100 |
-| `test_security_classification` | 每系统/表有分级：核心/重要/一般 |
-
-**文件：** `tests/test_data_profiling.py`
-
-| 测试 | 预期 |
-|------|------|
-| `test_parquet_file_readable` | pandas 可读取 data/historical 下的 Parquet 文件 |
-| `test_table_row_count` | 每表行数 > 0 |
-| `test_partition_discovery` | 可发现分区字段和分区值 |
-
----
-
-## 5. 端到端验证
+### 3.1 直接写入 OpenSearch（推荐演示用）
 
 ```bash
-# 运行测试
-uv run pytest tests/ -v
-
-# DataHub 前端验证
-open http://localhost:23310
-# 登录后应看到资产目录页面
-
-# Python 端到端
+# 清除已有数据
 uv run python -c "
-from dg_platform.datahub_client import get_client
-client = get_client()
-print('GMS alive:', client.is_alive())
-catalog = client.list_datasets()
-print('Datasets in DataHub:', len(catalog))
+import requests
+ES_URL = 'http://localhost:29200'
+r = requests.post(
+    f'{ES_URL}/datasetindex_v2/_delete_by_query',
+    json={'query': {'match_all': {}}},
+    headers={'Content-Type': 'application/json'},
+    timeout=30
+)
+print('Deleted:', r.json().get('deleted', 0))
+"
+
+# 重新上报
+uv run python scripts/direct_es_bulk.py
+```
+
+`scripts/direct_es_bulk.py` 特点：
+- 直接 bulk 写入 OpenSearch，不经过 GMS/MySQL
+- 自动从 Parquet 文件读取行数/存储大小
+- 支持全部 12 张表（含 scada/equipment_status）
+
+### 3.2 通过 GMS REST API 写入 Aspect
+
+```bash
+uv run python scripts/emit_browsepaths.py
+```
+
+`scripts/emit_browsepaths.py` 特点：
+- 通过 GMS `/aspects` REST 接口写入 browsePathsV2 + datasetProperties + ownership
+- 写入 MySQL 元数据存储，触发索引同步
+- 支持全部 12 张表的 Aspect 注册
+
+### 3.3 验证 Browse 导航
+
+```bash
+uv run python scripts/check_browse.py
+```
+
+---
+
+## 4. 数据资产录入现状
+
+### 4.1 已录入的资产（12 张表）
+
+| 平台 | 表名 | 说明 | Owner |
+|------|------|------|--------|
+| sap_erp | vbak | 销售订单抬头 | 销售部 |
+| sap_erp | vbap | 销售订单行项目 | 销售部 |
+| sap_erp | kna1 | 客户主数据 | 销售部 |
+| sap_erp | likp | 交货单抬头 | 销售部 |
+| sap_erp | lips | 交货单行项目 | 销售部 |
+| sap_erp | mara | 物料主数据 | 销售部 |
+| pi_system | tags | PI 时序标签数据 | 安全部 |
+| lims | samples | 煤质化验样品 | 煤质中心 |
+| oa | doc_flow | 文档流转记录 | 综合管理部 |
+| oa | contract | 合同记录 | 综合管理部 |
+| oa | meeting | 会议记录 | 综合管理部 |
+| scada | equipment_status | 设备状态 | 安全部 |
+
+### 4.2 验证资产是否在 DataHub 中
+
+```bash
+# 直接查 OpenSearch
+curl -s "http://localhost:29200/datasetindex_v2/_search?size=20&_source=name,urn,platform" | \
+  python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for h in d.get('hits',{}).get('hits',[]):
+    s=h['_source']
+    print(s.get('platform',''), '/', s.get('name',''))
 "
 ```
 
 ---
 
-## 6. 当前状态
+## 5. 当前状态
 
 **基础设施层（100%）**
-- [x] docker-compose.datahub.yml 完整可运行（Kafka/KAFKA_SCHEMAREGISTRY_URL/user root/认证关闭）
-- [x] datahub-upgrade 全部 27/27 步骤完成
-- [x] datahub-gms + datahub-frontend 健康运行
-- [x] Python `ingest_metadata` 端到端成功（OpenAPI v3 格式）
+- [x] datahub-quickstart.yml 完整可运行（v1.6.0）
+- [x] Neo4j 4.4.9 已集成（healthcheck 使用 bash /dev/tcp）
+- [x] OpenSearch 2.19.3 作为搜索后端
+- [x] MySQL 8.2 + Kafka 8.0.0 健康运行
+- [x] Delta Lake 本地文件系统存储（无外部依赖）
+- [x] 所有脚本端口已统一（28080/29200/23306）
 
-**应用层（100%）**
-- [x] `asset_visualizer.py` 实现（4 个核心函数）
-- [x] `data_profiler.py` 实现（3 个核心函数）
-- [x] 测试 41/41 全部通过
-- [x] 端到端验证：5 系统、12 张表全部上报 DataHub 成功
+**数据资产层（100%）**
+- [x] 12 张数据表已录入 OpenSearch 索引
+- [x] Browse 路径已写入
+- [x] 所有脚本端口已统一为新端口
+- [x] direct_es_bulk.py 重写（直接从 Parquet 读取统计）
+- [x] emit_browsepaths.py 重写（纯 REST API）
+- [x] check_browse.py 更新（验证 ES browsePath）
 
-**待优化**
-- [ ] `list_datasets()` GraphQL 查询需适配 v1.3.0（searchAcrossEntities 参数差异，ES 索引异步问题）
-- [ ] SCADA 无历史数据，`status=unknown`（正常行为）
+**数据入湖层（100%）**
+- [x] Delta Lake 本地存储 data/lakehouse/
+- [x] ODS 层：6 张 Parquet 入湖（sap_erp/pi_system/lims/oa）
+- [x] DWD 层：6 张清洗表（去空值/去重复/规范化）
+- [x] DWA 层：3 张汇总宽表（销售/告警/煤质）
+
+**数据质量层（100%）**
+- [x] Great Expectations 风格规则引擎（pandas 执行）
+- [x] 4 大系统全覆盖（sap_erp / pi_system / lims / oa）
+- [x] 评分等级 A/B/C/D 自动判定
+- [x] JSON 格式质量报告输出
+
+**血缘关系层（100%）**
+- [x] lineage_recipe.yaml 血缘关系配置
+- [x] emit_lineage.py 通过 Neo4j Bolt 直写血缘图
+- [x] 4 条血缘边（sap_erp→lims / dwd清洗血缘 / pi_system→dwd）
+- [x] GMS upstreamLineage aspect 不支持，换用 Neo4j 直写
+
+**分层建模层（100%）**
+- [x] DuckDB OLAP 引擎计算 DWA 汇总
+- [x] dwa_sales_daily — 每日销售汇总宽表
+- [x] dwa_tag_alarm — 传感器告警汇总
+- [x] dwa_coal_quality — 煤质月汇总
+
+---
+
+## 6. 教学演示流程
+
+### 6.1 演示一：数据资产可视化（10分钟）
+
+**教学目标**：展示接入 DataHub 后数据的全局可见性
+
+```
+Step 1: 启动服务
+  docker compose -f datahub-quickstart.yml up -d
+  → 确认 6 个服务全部 healthy
+
+Step 2: 上报数据资产
+  uv run python scripts/direct_es_bulk.py
+  → 12 张表写入 OpenSearch
+
+Step 3: 验证数据资产
+  uv run python scripts/check_browse.py
+  → 全部 ✅ browsePath 正确
+
+Step 4: 打开 DataHub Frontend
+  http://localhost:29002
+  → 搜索 "lims" 或 "sap" 查看数据集卡片
+```
+
+**Before**：各系统数据分散，没有统一视图
+**After**：DataHub 统一资产目录，5 个系统一览无余
+
+---
+
+### 6.2 演示二：数据质量检测（10分钟）
+
+**教学目标**：用 Great Expectations 规则引擎发现数据质量问题
+
+```bash
+# 运行质量检测
+uv run python scripts/run_great_expectations.py
+```
+
+**预期输出示例**：
+```
+📦 SAP_ERP
+  ▶ vbak ... [D] 66.7% (4/6)
+     🔴 FAIL: expect_column_values_to_not_be_null(KUNNR) → 12,688 异常 (2.54%)
+     🔴 FAIL: expect_column_values_to_be_unique(VBELN) → 434 异常 (0.09%)
+
+📦 PI_SYSTEM
+  ▶ tags ... [D] 40.0% (2/5)
+     🔴 FAIL: expect_column_values_to_be_between(status) → 2,518 异常 (0.50%)
+
+📊 全局质量评分汇总
+  sap_erp            73.3      C      73.3%        4
+  pi_system          40.0      D      40.0%        3
+  lims               71.4      C      71.4%        2
+  oa                 75.0      C      75.0%        1
+  平均                 64.9
+```
+
+**Before**：不知道数据质量如何
+**After**：量化评分 + 失败规则详情，质量问题一目了然
+
+**教学要点**：
+- GE 规则定义语法（expect_column_values_to_not_be_null 等）
+- 完整性 / 唯一性 / 准确性 / 一致性 四个维度
+- 评分等级含义（A≥95 / B≥85 / C≥70 / D<70）
+
+---
+
+### 6.3 演示三：数据入湖 Delta Lake（10分钟）
+
+**教学目标**：展示从原始 Parquet 到 Delta Lake 的完整入湖流程
+
+```bash
+# ODS 层入湖
+uv run python scripts/ingest_to_deltalake.py --layer ods
+
+# DWD 层清洗
+uv run python scripts/ingest_to_deltalake.py --layer dwd
+
+# DWA 层汇总
+uv run python scripts/build_dwa_models.py --layer dwa
+```
+
+**ODS 层输出示例**：
+```
+▶ sap_erp/kna1
+  行数: 15,000
+  ✅ Delta Lake: 4 files, 1.8 MB
+
+▶ pi_system/tags
+  行数: 4,464,000
+  ✅ Delta Lake: 2 files, 41.5 MB
+```
+
+**DWD 层输出示例**：
+```
+▶ sap_erp/dwd_vbak
+  3,014,284 → 2,999,312 行 (剔除 14,972 行, 0.5%)
+  ✅ Delta Lake: 4 files, 219.8 MB
+```
+
+**DWA 层输出示例**：
+```
+▶ dwa_sales_daily
+  汇总天数: 30 天
+  示例:
+    sale_date  order_count  customer_count  total_amount
+    2022-01-01            1               1     407663.73
+
+▶ dwa_tag_alarm
+  告警传感器数: 20
+  TOP: M003_FACE_E_TEMP, M005_FACE_E_WAGAS...
+
+▶ dwa_coal_quality
+  汇总记录数: 50
+  示例: 鄂尔多斯一号煤矿 / 2022-01 / 精煤 / avg_ash=28.69
+```
+
+**Before**：Parquet 散落在 data/historical/，无版本控制
+**After**：Delta Lake 本地存储（data/lakehouse/），事务支持 + Schema 演进
+
+**教学要点**：
+- ODS（原始层）→ DWD（清洗层）→ DWA（汇总层）的分层理念
+- Delta Lake ACID 事务 + Parquet 分区
+- 数据清洗规则（去空值、去重复、范围校验）
+
+---
+
+### 6.4 演示四：数据血缘（10分钟）
+
+**教学目标**：展示跨系统数据血缘关系和追溯能力
+
+```bash
+# 写入血缘到 Neo4j
+uv run python scripts/emit_lineage.py
+```
+
+**预期输出**：
+```
+Processing: lims.samples
+  [FALLBACK] Neo4j write...
+  [Neo4j] sap_erp.vbak --> lims.samples
+  [Neo4j] sap_erp.vbap --> lims.samples
+
+Processing: dwd.tags
+  [Neo4j] pi_system.tags --> dwd.tags
+
+Processing: dwd.vbak
+  [Neo4j] sap_erp.vbak --> dwd.vbak
+
+Processing: dwd.samples
+  [Neo4j] lims.samples --> dwd.samples
+
+LINEAGE GRAPH
+  sap_erp.vbak --> lims.samples
+  sap_erp.vbap --> lims.samples
+  lims.samples --> dwd.samples
+  sap_erp.vbak --> dwd.vbak
+  pi_system.tags --> dwd.tags
+```
+
+**血缘关系图**：
+```
+  ┌─────────────┐       ┌─────────────┐
+  │  sap_erp    │       │ pi_system   │
+  │  vbak/vbap  │──────▶│   tags      │
+  └──────┬──────┘       └──────┬──────┘
+         │                      │
+         │ KUNNR 关联           │ 清洗血缘
+         ▼                     ▼
+  ┌─────────────┐       ┌─────────────┐
+  │   lims      │       │  dwd.tags   │
+  │  samples    │──────▶│             │
+  └──────┬──────┘       └─────────────┘
+         │ 清洗血缘
+         ▼
+  ┌─────────────┐
+  │ dwd_samples │
+  └─────────────┘
+```
+
+**Before**：不知道数据从哪来、谁在用
+**After**：Neo4j 图数据库展示完整血缘链路，影响分析一键追溯
+
+**教学要点**：
+- UpstreamLineage aspect（GMS 不支持，换用 Neo4j 直写）
+- 数据血缘的两个维度：业务血缘（跨系统 JOIN）vs 加工血缘（DWD/DWA 清洗）
+- Neo4j 图数据库的社区发现算法找核心数据节点
+
+---
+
+## 7. 快速启动命令汇总
+
+```bash
+# 一键启动所有服务
+cd /home/szs/Playground/dg-demo
+docker compose -f datahub-quickstart.yml up -d
+
+# 上报资产
+uv run python scripts/direct_es_bulk.py
+
+# 质量检测
+uv run python scripts/run_great_expectations.py
+
+# 入湖 Delta Lake
+uv run python scripts/ingest_to_deltalake.py --layer ods
+uv run python scripts/ingest_to_deltalake.py --layer dwd
+uv run python scripts/build_dwa_models.py --layer dwa
+
+# 血缘录入
+uv run python scripts/emit_lineage.py
+
+# 验证资产
+uv run python scripts/check_browse.py
+```

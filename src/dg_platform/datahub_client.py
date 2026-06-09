@@ -52,8 +52,12 @@ class DataHubClient:
     def is_alive(self) -> bool:
         """检查 DataHub GMS 是否存活"""
         try:
-            resp = self._session.get(f"{self.config.gms_url}/health", timeout=3)
-            return resp.status_code == 200
+            resp = self._session.post(
+                f"{self.config.gms_url}/api/graphql",
+                json={"query": "{ __typename }"},
+                timeout=3,
+            )
+            return resp.status_code == 200 and resp.json().get("data", {}).get("__typename") == "Query"
         except requests.RequestException:
             return False
 
@@ -62,41 +66,40 @@ class DataHubClient:
         列出 DataHub 中注册的数据集。
 
         Args:
-            platform: 可选，筛选平台（如 "external"）
+            platform: 可选，筛选平台（如 "lims"）
 
         Returns:
             list of dataset metadata dicts
         """
-        filter_str = f'{{ platform: "{platform}" }}' if platform else "{}"
-        query = f"""
-        query ListDatasets {{
+        filters_line = f'filters: {{ platform: "{platform}" }},\n                    ' if platform else ""
+        query = """
+        query ListDatasets {
             searchAcrossEntities(
-                input: {{
-                    type: DATASET,
+                input: {
                     query: "*",
-                    filters: {filter_str},
+                    """ + filters_line + """
                     start: 0,
                     count: 1000
-                }}
-            ) {{
-                searchResults {{
-                    entity {{
-                        dataset {{
+                }
+            ) {
+                searchResults {
+                    entity {
+                        ... on Dataset {
                             name
                             description
-                            platform {{ name }}
-                            ownership {{
-                                owners {{ owner {{ username }} }}
-                            }}
-                        }}
-                    }}
-                }}
-            }}
-        }}
+                            platform { name }
+                        }
+                    }
+                }
+            }
+        }
         """
         try:
             result = self._graphql(query)
-            return result.get("data", {}).get("searchAcrossEntities", {}).get("searchResults", [])
+            data = result.get("data")
+            if data is None:
+                return []
+            return data.get("searchAcrossEntities", {}).get("searchResults", [])
         except requests.RequestException:
             return []
 

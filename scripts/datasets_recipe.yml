@@ -1,0 +1,27 @@
+# A公司数据治理 Demo — 数据集资产上报 Recipe
+# 走 GMS REST API (entity + aspects) 写入 MySQL + OpenSearch
+# Usage: datahub ingest -c scripts/datasets_recipe.yml
+
+source:
+  type: custom
+  config:
+    type: datasets
+
+pipeline_name: "A公司数据治理 Demo — 资产上报"
+
+transformers:
+  - type: pattern_add_dataset_ownership
+    config:
+      owner_urn: "urn:li:corpuser:datahub"
+      namespace: "urn:li:dataset"
+      pattern: ".*"
+
+  - type: pattern_add_dataset_tag
+    config:
+      tag: "urn:li:tag:重要资产"
+      pattern: "sap_erp|pi_system|lims"
+
+  - type: pattern_add_dataset_tag
+    config:
+      tag: "urn:li:tag:一般资产"
+      pattern: "oa"
