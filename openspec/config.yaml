@@ -1,0 +1,21 @@
+schema: pdca-workflow
+
+context: |
+  语言: 中文（简体）
+  所有产出物必须用简体中文撰写。但：
+  - API，REST，SQL 等软件专业缩写保留原文
+  - 示例代码、文件路径保留原文
+  技术栈: Python, Playwright
+  领域: 系统测试、CI/CD
+
+rules:
+  proposal:
+    - 必须分析受影响的模块
+    - 应该给出回滚计划
+  design:
+    - 必须符合已知的架构约束
+    - 应该给出方案对比和选型依据
+    - 应该用PlantUML绘图展示设计而非文字描述
+  tasks:
+    - 必须按依赖关系排列task，先排列无依赖的task
+    - 任务的工作量应该不大于2小时
