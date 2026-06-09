@@ -36,76 +36,38 @@ curl -s http://localhost:9000/minio/health/live
 
 CDC 数据采集和 SCADA 实时流的统一总线。
 
-```bash
-# docker-compose.yml（Kafka + Zookeeper 单节点）
+```yaml
+# docker-compose.yml（Kafka KRaft 模式，无需 Zookeeper）
 version: '3.8'
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    hostname: zookeeper
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
   kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    hostname: kafka
-    container_name: kafka
-    depends_on:
-      - zookeeper
+    image: confluentinc/cp-kafka:8.0.0
+    hostname: broker
+    container_name: datahub-kafka
     ports:
+      - "29092:29092"  # 外部访问
       - "9092:9092"
-      - "29092:29092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_NODE_ID: '1'
+      KAFKA_PROCESS_ROLES: controller, broker
+      KAFKA_LISTENERS: BROKER://broker:29092,EXTERNAL://broker:9092,CONTROLLER://broker:39092
+      KAFKA_ADVERTISED_LISTENERS: BROKER://broker:29092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,BROKER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker:39092'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+      KAFKA_MAX_MESSAGE_BYTES: 5242880
 ```
 
 ```bash
 # 启动
-docker-compose up -d
+docker compose up -d kafka
 
 # 验证
-docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
-```
-
-**依赖的 Kafka Connect 镜像（Debezium CDC）：**
-
-```bash
-docker pull quay.io/debezium/connect:2.3
-```
-
----
-
-### 1.3 时序存储（TimescaleDB）
-
-已在 PI-System 使用，本方案复用 TimescaleDB 作为 PI 历史数据的归档存储和 OLAP 查询加速。
-
-```bash
-# 启动 TimescaleDB（生产用云厂商托管或独服）
-docker run -d \
-  --name timescaledb \
-  -p 5432:5432 \
-  -e POSTGRES_USER=admin \
-  -e POSTGRES_PASSWORD=admin123 \
-  -e POSTGRES_DB=pi_archive \
-  -v timescaledb-data:/var/lib/postgresql/data \
-  timescale/timescaledb:latest-pg15
-```
-
-```bash
-# 验证
-docker exec -it timescaledb psql -U admin -d pi_archive -c "SELECT version();"
+docker exec kafka kafka-topics --bootstrap-server localhost:29092 --list
 ```
 
 ---
@@ -116,72 +78,92 @@ docker exec -it timescaledb psql -U admin -d pi_archive -c "SELECT version();"
 
 核心元数据管理平台，选型理由见 Design.md 3.2 节。
 
-**前置依赖：MySQL + Elasticsearch**
+**当前使用版本：v1.6.0**
+**搜索后端：OpenSearch 2.19.3**（不再使用 Elasticsearch）
+**图数据库：Neo4j 4.4.9-community**（可与 OpenSearch 共存，GRAPH_SERVICE_IMPL=neo4j）
 
-```yaml
-# docker-compose.yml（DataHub 前置服务）
-version: '3.8'
-services:
-  mysql:
-    image: mysql:8.0
-    hostname: mysql
-    container_name: datahub-mysql
-    ports:
-      - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: datahub_root
-      MYSQL_DATABASE: datahub
-      MYSQL_USER: datahub
-      MYSQL_PASSWORD: datahub
-    volumes:
-      - mysql-data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_bin
+#### 启动方式
 
-  elasticsearch:
-    image: elasticsearch:7.17.9
-    hostname: elasticsearch
-    container_name: elasticsearch
-    ports:
-      - "9200:9200"
-    environment:
-      discovery.type: single-node
-      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
-      xpack.security.enabled: "false"
-    volumes:
-      - es-data:/usr/share/elasticsearch/data
-    mem_limit: 2g
-```
+使用项目根目录的 `datahub-quickstart.yml`，一键启动所有 DataHub 相关服务：
 
 ```bash
-# 启动前置服务
-docker-compose -f docker-compose前置.yml up -d
+# 启动完整 DataHub（MySQL + Kafka + OpenSearch + Neo4j + GMS + Frontend + Actions）
+cd /home/szs/Playground/dg-demo
+docker compose -f datahub-quickstart.yml up -d
 ```
 
-**DataHub 本体（Datahub-Containerized）**：
+**各服务端口：**
 
-> 注意：DataHub 官方推荐使用 `datahub docker quickstart` 命令，但该命令依赖 Datahub CLI。也可直接使用 acryldata 提供的镜像自建。
+| 服务 | 容器名 | 端口 | 说明 |
+|------|--------|------|------|
+| 前端 Web UI | datahub-frontend-quickstart | **29002** | 浏览器访问 |
+| GMS API | datahub-datahub-gms-quickstart | **28080** | 后端接口 |
+| Neo4j 浏览器 | datahub-neo4j | **27474** | 图数据库 UI |
+| Neo4j Bolt | datahub-neo4j | **27687** | 程序连接 |
+| OpenSearch | datahub-opensearch | **29200** | 搜索索引 |
+| MySQL | datahub-mysql | **23306** | 元数据存储 |
+| Kafka | datahub-kafka-broker | **29092** | 消息队列 |
 
-```bash
-# 方式一：官方 quickstart（推荐用于演示）
-# 安装 DataHub CLI
-curl -fsSL https://Raw.githubusercontent.com/datahub-project/datahub/master/quickstart.sh | bash
+**启动顺序（compose 自动处理）：**
 
-# 方式二：手动 Docker Compose（生产推荐）
-# 获取官方 docker-compose 文件
-wget https://raw.githubusercontent.com/datahub-project/datahub/master/docker-composeonitoring/docker-compose.yml
-
-# 修改 MySQL 和 Elasticsearch 指向外部服务（上述 yaml 启动的）
-# 然后
-docker-compose up -d
+```
+kafka-broker (healthy) → mysql (healthy) → opensearch (healthy) → neo4j (healthy)
+     → system-update-quickstart (一次性 setup 任务)
+     → datahub-gms-quickstart (启动 GMS)
+     → frontend-quickstart
+     → datahub-actions-quickstart
 ```
 
-**验证：**
+**注意事项：**
+- Neo4j healthcheck 使用 `bash /dev/tcp/`，无需容器内安装额外工具
+- 首次启动 system-update-quickstart 约需 2-3 分钟完成索引初始化
+- Neo4j 默认账号：`neo4j` / `datahub`
+- DataHub 前端无需登录（quickstart 模式默认关闭认证）
+
+#### 镜像预拉取
+
 ```bash
+# 提前拉取，避免首次启动超时（后台执行）
+docker pull acryldata/datahub-gms:v1.6.0 &
+docker pull acryldata/datahub-frontend-react:v1.6.0 &
+docker pull acryldata/datahub-actions:v1.6.0 &
+docker pull acryldata/datahub-upgrade:v1.6.0 &
+docker pull opensearchproject/opensearch:2.19.3 &
+docker pull neo4j:4.4.9-community &
+docker pull mysql:8.2 &
+wait
+```
+
+#### 环境验证
+
+```bash
+# 检查所有服务状态
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep datahub
+
 # DataHub 前端
-open http://localhost:9002
+open http://localhost:29002
 
-# DataHub GMS（Metadata Service）
-curl -s http://localhost:8080/health
+# GMS 健康检查
+curl -s http://localhost:28080/health
+
+# OpenSearch 索引验证
+curl -s "http://localhost:29200/_cat/indices?v"
+
+# Neo4j 验证
+curl -s http://localhost:27474
+
+# MySQL schema 验证
+docker exec datahub-mysql mysql -u root -pdatahub -e "SHOW TABLES;" datahub
+```
+
+#### 从旧版本升级
+
+如果之前使用 v1.3.0.1，数据无法自动迁移，需要重新启动一次 setup：
+
+```bash
+# 删除旧容器和卷，重新启动
+docker compose -f datahub-quickstart.yml down -v
+docker compose -f datahub-quickstart.yml up -d
 ```
 
 ---
@@ -190,27 +172,16 @@ curl -s http://localhost:8080/health
 
 ### 3.1 Great Expectations（Python 库）
 
-质量检测引擎，通过 pip 安装。
+质量检测引擎，通过 uv 安装。
 
 ```bash
 uv add great-expectations
 ```
 
-```toml
-# pyproject.toml
-[project]
-dependencies = [
-    "pandas>=2.0",
-    "pyarrow>=14.0",
-    "numpy>=1.26",
-    "great-expectations>=0.18",
-]
-```
-
 ```python
 # 快速验证安装
 import great_expectations as ge
-print(ge.__version__)  # 0.18.x
+print(ge.__version__)
 ```
 
 ### 3.2 自研告警服务（需自行开发）
@@ -233,7 +204,6 @@ uv add yagmail           # 邮件通知
 通过 PySpark 使用，不需要单独安装。
 
 ```bash
-# Delta Lake Spark connector（通过 pyspark 自动携带）
 uv add pyspark>=3.4
 ```
 
@@ -243,8 +213,6 @@ from pyspark.sql import SparkSession
 spark = SparkSession.builder \
     .config("spark.jars.packages", "io.delta:delta-core_2.12:2.4.0") \
     .getOrCreate()
-
-spark.read.format("delta").load("s3://bucket/path")
 ```
 
 ### 4.2 MinIO S3 兼容存储（见 1.1）
@@ -266,8 +234,6 @@ spark = SparkSession.builder \
 **演示/开发环境：Local 模式（Docker）**
 
 ```bash
-# Apache Toree（Jupyter 内核，支持 Spark）
-# 或直接用 PySpark
 uv add pyspark
 
 # 提交 Spark 作业
@@ -296,7 +262,7 @@ helm install spark bitnami/spark \
 
 SCADA 实时流预处理和实时质量检测。
 
-```bash
+```yaml
 # Docker Compose 单节点 Flink
 version: '3.8'
 services:
@@ -308,8 +274,7 @@ services:
       - "8081:8081"
     command: jobmanager
     environment:
-      - |
-        FLINK_PROPERTIES=
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         state.backend: rocksdb
 
@@ -320,10 +285,8 @@ services:
     depends_on:
       - jobmanager
     command: taskmanager
-    scale: 2
     environment:
-      - |
-        FLINK_PROPERTIES=
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 4
 ```
@@ -374,7 +337,7 @@ services:
 
 ```bash
 # 启动
-docker-compose up -d
+docker compose up -d
 
 # 验证（MySQL 客户端连接）
 mysql -h 127.0.0.1 -P 9030 -uroot
@@ -449,30 +412,20 @@ open http://localhost:3000   # admin / admin123
 支持 SQL Lab 即席查询，接入 Doris / MySQL。
 
 ```bash
-# Docker Compose
-version: '3.8'
-services:
-  superset:
-    image: apache/superset:latest
-    container_name: superset
-    ports:
-      - "8088:8088"
-    environment:
-      SUPERSET_SECRET_KEY: superset_secret_key_change_me
-    volumes:
-      - superset-data:/var/lib/superset
-    mem_limit: 4g
+docker run -d \
+  --name superset \
+  -p 8088:8088 \
+  -e "SUPERSET_SECRET_KEY=superset_secret_key_change_me" \
+  -v superset-data:/var/lib/superset \
+  apache/superset:latest
 ```
 
 ```bash
 # 初始化（首次启动）
 docker exec -it superset superset db upgrade
 docker exec -it superset superset fab create-admin \
-    --username admin \
-    --firstname Admin \
-    --lastname User \
-    --email admin@example.com \
-    --password admin123
+    --username admin --firstname Admin --lastname User \
+    --email admin@example.com --password admin123
 docker exec -it superset superset init
 
 # 验证
@@ -480,349 +433,29 @@ open http://localhost:8088   # admin / admin123
 ```
 
 **接入 Doris（推荐）：**
-```python
-# Superset → Sources → Databases → Add Database
+```
 Database Name: doris_dwm
 SQLAlchemy URI: mysql+pymysql://root:@doris-fe:9030/dwm
 ```
 
 ---
 
-## 9. 完整 Docker Compose（一体化演示环境）
-
-以下文件一次性启动所有基础服务（Kafka / Zookeeper / MySQL / Elasticsearch / DataHub / MinIO / Doris / Flink / DolphinScheduler / Grafana / Superset）：
-
-```yaml
-# docker-compose.all-in-one.yml
-version: '3.8'
-
-services:
-  # ── 1. MinIO（对象存储）───────────────────────────────
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    ports:
-      - "9000:9000"   # API
-      - "9001:9001"   # Console
-    environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: admin123
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── 2. Zookeeper + Kafka───────────────────────────────
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: kafka
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-      - "29092:29092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-
-  # ── 3. MySQL（DataHub 元数据库 + OLTP）───────────────
-  mysql:
-    image: mysql:8.0
-    container_name: datahub-mysql
-    ports:
-      - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: datahub_root
-      MYSQL_DATABASE: datahub
-      MYSQL_USER: datahub
-      MYSQL_PASSWORD: datahub
-    volumes:
-      - mysql-data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_bin
-
-  # ── 4. Elasticsearch（DataHub 搜索）──────────────────
-  elasticsearch:
-    image: elasticsearch:7.17.9
-    container_name: elasticsearch
-    ports:
-      - "9200:9200"
-    environment:
-      discovery.type: single-node
-      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
-      xpack.security.enabled: "false"
-    volumes:
-      - es-data:/usr/share/elasticsearch/data
-    mem_limit: 2g
-
-  # ── 5. DataHub（元数据管理）────────────────────────────
-  datahub:
-    image: acryldata/datahub-frontend-react:v1.3.0.1
-    container_name: datahub
-    depends_on:
-      mysql:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-    ports:
-      - "9002:9002"
-    environment:
-      DATABASE_HOST: mysql
-      DATABASE_PORT: 3306
-      DATABASE_NAME: datahub
-      DATABASE_USERNAME: datahub
-      DATABABASE_PASSWORD: datahub
-      DATAHUB_GMS_HOST: datahub-gms
-      ELASTICSEARCH_HOST: elasticsearch
-      ELASTICSEARCH_INDEX_FLAVOR: elasticsearch
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9002"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  datahub-gms:
-    image: acryldata/datahub-gms:latest
-    container_name: datahub-gms
-    depends_on:
-      mysql:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
-    environment:
-      DATABASES_HOST: mysql
-      DATABASES_PORT: 3306
-      KAFKA_BOOTSTRAPSERVER: kafka:29092
-      ELASTICSEARCH_HOST: elasticsearch
-      ENTITY_SERVICE_AUTH_ENABLED: "false"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # ── 6. Apache Doris（OLAP）───────────────────────────
-  doris-fe:
-    image: apache/doris-fe:2.0.0
-    container_name: doris-fe
-    ports:
-      - "8030:8030"
-      - "9030:9030"
-    environment:
-      FE_SERVERS: fe1:127.0.0.1:9010
-
-  doris-be:
-    image: apache/doris-be:2.0.0
-    container_name: doris-be
-    depends_on:
-      - doris-fe
-    ports:
-      - "8040:8040"
-    environment:
-      BE_ADDR: doris-be:9050
-      FE_ADDR: doris-fe:9010
-    volumes:
-      - doris-be-data:/opt/apache-doris/be/storage
-
-  # ── 7. Apache Flink（流处理）─────────────────────────
-  flink-jobmanager:
-    image: flink:1.17.1
-    container_name: flink-jobmanager
-    ports:
-      - "8081:8081"
-    command: jobmanager
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: flink-jobmanager
-
-  flink-taskmanager:
-    image: flink:1.17.1
-    container_name: flink-taskmanager
-    depends_on:
-      - flink-jobmanager
-    command: taskmanager
-    scale: 1
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: flink-jobmanager
-        taskmanager.numberOfTaskSlots: 4
-
-  # ── 8. DolphinScheduler（调度）────────────────────────
-  dolphinscheduler:
-    image: apache/dolphinscheduler-standalone-server:latest
-    container_name: dolphinscheduler
-    ports:
-      - "12345:12345"
-      - "25333:25333"
-    mem_limit: 2g
-
-  # ── 9. Grafana（监控）─────────────────────────────────
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    ports:
-      - "3000:3000"
-    environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin123
-    volumes:
-      - grafana-data:/var/lib/grafana
-
-  # ── 10. Superset（BI）────────────────────────────────
-  superset:
-    image: apache/superset:latest
-    container_name: superset
-    ports:
-      - "8088:8088"
-    environment:
-      SUPERSET_SECRET_KEY: superset_demo_key_2024
-    volumes:
-      - superset-data:/var/lib/superset
-    mem_limit: 4g
-
-volumes:
-  minio-data:
-  mysql-data:
-  es-data:
-  doris-be-data:
-  grafana-data:
-  superset-data:
-```
+## 9. 项目启动顺序
 
 ```bash
-# 一键启动（需要 16GB+ 内存）
-docker-compose -f docker-compose.all-in-one.yml up -d
+# 1. 启动 DataHub（核心基础设施）
+cd /home/szs/Playground/dg-demo
+docker compose -f datahub-quickstart.yml up -d
 
-# 检查所有服务健康状态
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-```
+# 等待所有服务 healthy（约 2-3 分钟）
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep datahub
 
-**服务端口速查：**
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| MinIO API | 9000 | S3 兼容 |
-| MinIO Console | 9001 | Web 控制台 |
-| Kafka | 9092 | 消息队列 |
-| Zookeeper | 2181 | Kafka 依赖 |
-| MySQL | 3306 | 元数据库 |
-| Elasticsearch | 9200 | 搜索索引 |
-| DataHub | 9002 | Web UI |
-| DataHub GMS | 8080 | Metadata API |
-| Doris FE | 9030 | MySQL 协议 |
-| Doris BE | 8040 | 计算节点 |
-| Flink UI | 8081 | 流处理管理 |
-| DolphinScheduler | 12345 | 调度平台 |
-| Grafana | 3000 | 监控看板 |
-| Superset | 8088 | BI 分析 |
-
----
-
-## 10. Python 依赖清单
-
-所有 Python 库通过 `uv add` 安装，统一记录在 `pyproject.toml`：
-
-```toml
-[project]
-requires-python = ">=3.10"
-dependencies = [
-    # ── 数据处理 ──────────────────────────
-    "pandas>=2.0",
-    "pyarrow>=14.0",
-    "numpy>=1.26",
-
-    # ── 数据湖 ────────────────────────────
-    "pyspark>=3.4",
-    "deltalake>=0.12",
-
-    # ── 数据质量 ──────────────────────────
-    "great-expectations>=0.18",
-
-    # ── 时序数据 ──────────────────────────
-    "psycopg2-binary>=2.9",       # TimescaleDB/PostgreSQL
-    "sqlalchemy>=2.0",
-
-    # ── 消息队列 ──────────────────────────
-    "kafka-python>=2.0",
-
-    # ── 对象存储 ──────────────────────────
-    "boto3>=1.28",
-
-    # ── OLAP ─────────────────────────────
-    "pymysql>=1.1",
-
-    # ── 数据质量告警 ──────────────────────
-    "requests>=2.31",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=7.0",
-    "jupyter>=1.0",
-]
-```
-
-```bash
-# 安装所有依赖
+# 2. 安装 Python 依赖
 uv sync
 
-# 验证核心依赖
-python -c "
-import pandas, numpy, pyarrow
-import great_expectations as ge
-import pyspark
-import boto3
-import kafka
-print('✓ All core dependencies installed')
-"
-```
+# 3. 验证 DataHub 前端
+open http://localhost:29002
 
----
-
-## 11. 快速验证清单
-
-```bash
-# 1. 基础设施
-curl -s http://localhost:9000/minio/health/live          # MinIO
-docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list  # Kafka
-docker exec -it timescaledb psql -U admin -c "SELECT 1"  # TimescaleDB
-
-# 2. 元数据
-curl -s http://localhost:9200                             # Elasticsearch
-curl -s http://localhost:8080/health                       # DataHub GMS
-curl -s http://localhost:9002                              # DataHub UI
-
-# 3. OLAP
-mysql -h 127.0.0.1 -P 9030 -uroot -e "SHOW FRONTENDS"    # Doris
-
-# 4. 流处理
-curl -s http://localhost:8081/taskmanagers               # Flink
-
-# 5. 调度
-curl -s http://localhost:12345/dolphinscheduler           # DolphinScheduler
-
-# 6. 可视化
-curl -s http://localhost:3000/api/health                  # Grafana
-curl -s http://localhost:8088/health                       # Superset
-
-# 7. Python 依赖
-uv run python -c "import pandas, pyspark, great_expectations; print('OK')"
+# 4. 验证 OpenSearch 中的数据资产
+curl -s "http://localhost:29200/datasetindex_v2/_count"
 ```

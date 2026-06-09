@@ -1,0 +1,71 @@
+# Lineage Recipe Configuration
+# Defines upstream lineage relationships for DataHub/GMS ingestion
+
+gms:
+  url: "http://localhost:28080"
+  auth: "datahub:datahub"
+
+neo4j:
+  uri: "bolt://localhost:7687"
+  auth: "neo4j:datahub"
+
+# Lineage relationships
+# format: downstream → upstream (downstream depends on upstream)
+lineage_relationships:
+  # lims.samples depends on sap_erp.vbak and sap_erp.vbap via KUNNR join
+  - downstream:
+      platform: sap_erp
+      table: vbak
+    upstream: null
+    description: "SAP Sales Orders header - source for lims samples"
+
+  - downstream:
+      platform: sap_erp
+      table: vbap
+    upstream: null
+    description: "SAP Sales Orders items - source for lims samples"
+
+  - downstream:
+      platform: lims
+      table: samples
+    upstream:
+      - platform: sap_erp
+        table: vbak
+        join_key: KUNNR
+      - platform: sap_erp
+        table: vbap
+        join_key: KUNNR
+    description: "LIMS samples derived from SAP ERP via KUNNR"
+
+  # pi_system.tags → dwd_tags (PI system tags cleaned into dwd)
+  - downstream:
+      platform: pi_system
+      table: tags
+    upstream: null
+    description: "PI System tags - source"
+
+  - downstream:
+      platform: dwd
+      table: tags
+    upstream:
+      - platform: pi_system
+        table: tags
+    description: "Cleaned DWD tags from PI system"
+
+  # dwd_vbak - cleaned from sap_erp.vbak
+  - downstream:
+      platform: dwd
+      table: vbak
+    upstream:
+      - platform: sap_erp
+        table: vbak
+    description: "Cleaned DWD Sales Order header from SAP ERP"
+
+  # dwd_samples - cleaned from lims.samples
+  - downstream:
+      platform: dwd
+      table: samples
+    upstream:
+      - platform: lims
+        table: samples
+    description: "Cleaned DWD samples from LIMS"

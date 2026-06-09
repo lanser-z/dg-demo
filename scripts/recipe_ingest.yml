@@ -1,0 +1,15 @@
+# DataHub ingestion recipe for A公司数据治理 Demo
+# Usage: datahub ingest -c recipe.yml
+source:
+  type: datahub
+  config:
+    ingest_aspects: true
+    write_to_graph: true
+    write_to_timeseries: true
+
+transformers:
+  - type: pattern_add_dataset_ownership
+    config:
+      owner_urn: "urn:li:corpuser:datahub"
+      namespace: "urn:li:dataset"
+      pattern: ".*"
