@@ -27,8 +27,8 @@ def check_browse_path(platform, table):
     """查询 ES 中该数据集的 browsePath"""
     urn = f"urn:li:dataset:(urn:li:dataPlatform:{platform},{table},PROD)"
     q = {
-        "query": {"term": {"urn.keyword": urn}},
-        "_source": ["urn", "name", "description", "browsePath", "platform", "tags"],
+        "query": {"term": {"urn": urn}},
+        "_source": ["urn", "name", "description", "browsePath", "browsePathV2", "platform", "tags"],
         "size": 1,
     }
     r = requests.post(

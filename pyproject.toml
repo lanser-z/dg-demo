@@ -29,6 +29,7 @@ dependencies = [
     # ── 元数据平台 ─────────────────────────
     "acryl-datahub>=0.12",
     "mysql-connector-python>=9.7.0",
+    "playwright>=1.60.0",
 ]
 
 [tool.setuptools.packages.find]
