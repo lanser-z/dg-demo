@@ -1,12 +1,35 @@
 """
-通过 GMS REST API 为数据集写入 browsePaths 和 browsePathsV2 aspect。
-使用 GMS 的 MCP REST endpoint，不依赖 datahub SDK。
+通过 DataHub Python SDK (rest_emitter) 写入 dataset 的
+browsePathsV2 / datasetProperties / ownership / globalTags aspect 到 MySQL。
+
+旧版本走 GMS `/aspects` 端点（v1.6.0 返回 400）或 `/openapi/v3/entity/dataset`
+（202 Accepted 但实际未处理到 MySQL）。改用官方 SDK 的 rest_emitter 是稳定路径。
 """
-import requests
+import logging
 import time
 
+from datahub.emitter.mce_builder import (
+    make_dataset_urn,
+    make_tag_urn,
+    make_user_urn,
+)
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+from datahub.emitter.mcp import MetadataChangeProposalWrapper
+from datahub.metadata.schema_classes import (
+    BrowsePathEntryClass,
+    BrowsePathsV2Class,
+    DatasetPropertiesClass,
+    GlobalTagsClass,
+    OwnerClass,
+    OwnershipClass,
+    OwnershipTypeClass,
+    TagAssociationClass,
+)
+
+logging.basicConfig(level=logging.WARN)
+
 GMS_URL = "http://localhost:28080"
-AUTH = ("datahub", "datahub")
+TOKEN = ""
 
 DATASETS = [
     {"platform": "lims",          "table": "samples"},
@@ -23,168 +46,108 @@ DATASETS = [
     {"platform": "scada",         "table": "equipment_status"},
 ]
 
+CHINESE_NAMES = {
+    "lims":          {"samples":           "煤质化验样品"},
+    "sap_erp":       {"kna1":              "客户主数据",
+                       "vbak":             "销售订单抬头",
+                       "vbap":             "销售订单行项目",
+                       "likp":             "交货单抬头",
+                       "lips":             "交货单行项目",
+                       "mara":             "物料主数据"},
+    "pi_system":     {"tags":              "PI时序标签数据"},
+    "oa":            {"doc_flow":          "文档流转记录",
+                       "contract":          "合同记录",
+                       "meeting":          "会议记录"},
+    "scada":         {"equipment_status":  "设备状态"},
+}
 
-def build_urn(platform, table):
-    return f"urn:li:dataset:(urn:li:dataPlatform:{platform},{table},PROD)"
+SECURITY_MAP = {
+    "lims": "重要资产", "sap_erp": "重要资产",
+    "pi_system": "核心资产", "oa": "一般资产", "scada": "核心资产",
+}
 
-
-def write_browse_path_v2(urn, platform, table):
-    """写入 browsePathsV2 aspect"""
-    payload = {
-        "entityUrn": urn,
-        "entityType": "dataset",
-        "aspectName": "browsePathsV2",
-        "changeType": "UPSERT",
-        "aspect": {
-            "path": [
-                {"id": platform},
-                {"id": table},
-            ]
-        },
-    }
-    r = requests.post(
-        f"{GMS_URL}/aspects",
-        json=payload,
-        auth=AUTH,
-        headers={"Content-Type": "application/json"},
-        timeout=15,
-    )
-    return r
-
-
-def write_dataset_properties(urn, platform, table):
-    """写入 datasetProperties aspect（中文名/描述）"""
-    chinese_names = {
-        "lims":          {"samples":           "LIMS煤质检测批次"},
-        "sap_erp":       {"kna1":             "SAP客户主数据",
-                           "vbak":             "SAP销售订单抬头",
-                           "vbap":             "SAP销售订单行项",
-                           "likp":             "SAP交货单抬头",
-                           "lips":             "SAP交货单行项目",
-                           "mara":             "SAP物料主数据"},
-        "pi_system":     {"tags":              "PI时序传感器标签"},
-        "oa":            {"doc_flow":          "OA审批流程记录",
-                           "contract":          "OA合同记录",
-                           "meeting":          "OA会议记录"},
-        "scada":         {"equipment_status":  "SCADA设备状态"},
-    }
-    security_map = {
-        "lims": "重要资产", "sap_erp": "重要资产",
-        "pi_system": "核心资产", "oa": "一般资产", "scada": "核心资产",
-    }
-
-    name = chinese_names.get(platform, {}).get(table, f"{platform}/{table}")
-    desc = f"[{security_map.get(platform, '一般资产')}] {name}"
-    tags = [security_map.get(platform, "一般资产")]
-
-    payload = {
-        "entityUrn": urn,
-        "entityType": "dataset",
-        "aspectName": "datasetProperties",
-        "changeType": "UPSERT",
-        "aspect": {
-            "description": desc,
-            "tags": tags,
-        },
-    }
-    r = requests.post(
-        f"{GMS_URL}/aspects",
-        json=payload,
-        auth=AUTH,
-        headers={"Content-Type": "application/json"},
-        timeout=15,
-    )
-    return r
-
-
-def write_ownership(urn, platform):
-    """写入 ownership aspect"""
-    owner_map = {
-        "lims":        ("coal_quality_team", "煤质中心"),
-        "sap_erp":     ("sales_dept",        "销售部"),
-        "pi_system":   ("safety_dept",        "安全部"),
-        "oa":          ("admin_dept",         "综合管理部"),
-        "scada":       ("safety_dept",        "安全部"),
-    }
-    owner_id, owner_name = owner_map.get(platform, ("unknown", "未知"))
-
-    payload = {
-        "entityUrn": urn,
-        "entityType": "dataset",
-        "aspectName": "ownership",
-        "changeType": "UPSERT",
-        "aspect": {
-            "owners": [
-                {
-                    "owner": f"urn:li:corpuser:{owner_id}",
-                    "type": "DATAOWNER",
-                    "source": "DATA_PROCESS",
-                }
-            ]
-        },
-    }
-    r = requests.post(
-        f"{GMS_URL}/aspects",
-        json=payload,
-        auth=AUTH,
-        headers={"Content-Type": "application/json"},
-        timeout=15,
-    )
-    return r
+OWNER_MAP = {
+    "lims":        ("coal_quality_team", "煤质中心"),
+    "sap_erp":     ("sales_dept",        "销售部"),
+    "pi_system":   ("safety_dept",       "安全部"),
+    "oa":          ("admin_dept",        "综合管理部"),
+    "scada":       ("safety_dept",       "安全部"),
+}
 
 
 def main():
-    print(f"=== 写入 BrowsePaths + DatasetProperties + Ownership ===")
+    print(f"=== 写入 12 张表 aspect (DataHub SDK rest_emitter) ===")
     print(f"GMS: {GMS_URL}")
-    print(f"Datasets: {len(DATASETS)}")
     print()
 
-    results = {"browseV2": 0, "properties": 0, "ownership": 0, "failed": 0}
+    emitter = DatahubRestEmitter(gms_server=GMS_URL, token=TOKEN)
 
+    results = {"datasets_ok": 0, "datasets_fail": 0}
     for ds in DATASETS:
         platform = ds["platform"]
         table = ds["table"]
-        urn = build_urn(platform, table)
-        print(f"\n[{platform}/{table}]")
+        urn = make_dataset_urn(platform=platform, name=table, env="PROD")
+        name = CHINESE_NAMES.get(platform, {}).get(table, f"{platform}/{table}")
+        sec = SECURITY_MAP.get(platform, "一般资产")
+        desc = f"[{sec}] {name}"
+        owner_id, _owner_name = OWNER_MAP.get(platform, ("unknown", "未知"))
 
-        # browsePathsV2
-        r1 = write_browse_path_v2(urn, platform, table)
-        if r1.status_code in (200, 201):
-            print(f"  browsePathsV2: {r1.status_code} OK")
-            results["browseV2"] += 1
-        else:
-            print(f"  browsePathsV2: {r1.status_code} FAIL — {r1.text[:100]}")
-            results["failed"] += 1
+        # 1. browsePathsV2
+        bp = BrowsePathsV2Class(
+            path=[
+                BrowsePathEntryClass(id=platform, urn=f"urn:li:container:{platform}"),
+                BrowsePathEntryClass(id=table,    urn=urn),
+            ]
+        )
+        # 2. datasetProperties
+        dp = DatasetPropertiesClass(
+            name=name,
+            description=desc,
+            customProperties={
+                "system":   platform,
+                "table":    table,
+                "security": sec,
+            },
+        )
+        # 3. ownership
+        own = OwnershipClass(
+            owners=[
+                OwnerClass(
+                    owner=make_user_urn(owner_id),
+                    type=OwnershipTypeClass.DATAOWNER,
+                ),
+            ]
+        )
+        # 4. globalTags
+        tags = GlobalTagsClass(
+            tags=[TagAssociationClass(tag=make_tag_urn(sec))]
+        )
 
-        # datasetProperties
-        r2 = write_dataset_properties(urn, platform, table)
-        if r2.status_code in (200, 201):
-            print(f"  datasetProperties: {r2.status_code} OK")
-            results["properties"] += 1
-        else:
-            print(f"  datasetProperties: {r2.status_code} FAIL — {r2.text[:100]}")
-
-        # ownership
-        r3 = write_ownership(urn, platform)
-        if r3.status_code in (200, 201):
-            print(f"  ownership: {r3.status_code} OK")
-            results["ownership"] += 1
-        else:
-            print(f"  ownership: {r3.status_code} FAIL — {r3.text[:100]}")
+        print(f"[{platform}/{table}]")
+        try:
+            for mce_aspect in (bp, dp, own, tags):
+                wrapper = MetadataChangeProposalWrapper(
+                    entityUrn=urn,
+                    aspect=mce_aspect,
+                )
+                emitter.emit_mcp(wrapper)
+            print(f"  全部 aspect 写入 OK")
+            results["datasets_ok"] += 1
+        except Exception as e:
+            print(f"  FAIL — {type(e).__name__}: {e}")
+            results["datasets_fail"] += 1
 
         time.sleep(0.3)
 
     print("\n=== 汇总 ===")
-    print(f"  browsePathsV2 写入: {results['browseV2']}/{len(DATASETS)} OK")
-    print(f"  datasetProperties 写入: {results['properties']}/{len(DATASETS)} OK")
-    print(f"  ownership 写入: {results['ownership']}/{len(DATASETS)} OK")
-    if results["failed"] == 0:
+    print(f"  12 张表写入: {results['datasets_ok']}/{len(DATASETS)} OK")
+    if results["datasets_ok"] == len(DATASETS):
         print("\n✅ 全部完成")
     else:
-        print(f"\n⚠️  {results['failed']} 条失败")
+        print(f"\n⚠️  {results['datasets_fail']} 张表失败")
 
-    print("\n注意：写入 MySQL 后需等待 GMS 将数据同步到 OpenSearch 索引。")
-    print("可通过 Browse API 验证导航路径是否生效。")
+    print("\n注意：写入 MySQL 后需等待 GMS 将数据同步到 OpenSearch 索引（< 30s）。")
+    print("可通过 check_browse.py 验证 navigation 路径是否生效。")
 
 
 if __name__ == "__main__":
