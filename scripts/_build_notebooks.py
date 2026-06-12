@@ -1,4 +1,4 @@
-"""One-shot generator: build the refactored step1.ipynb + datahub_setup.ipynb.
+"""One-shot generator: build the refactored module1.ipynb + datahub_setup.ipynb.
 
 Run from repo root:
     PYTHONPATH=src uv run python scripts/_build_notebooks.py
@@ -8,7 +8,7 @@ running, the resulting .ipynb files are committed to git and the script
 itself can be removed (or kept as reference).
 
 Design rationale (see openspec/changes/improve-step1-notebook-onboarding/):
-  - step1.ipynb: teaching notebook (3 步 learning rhythm + 痛点 story +
+  - module1.ipynb: teaching notebook (3 步 learning rhythm + 痛点 story +
     业务影响 annotations + DataHub UI walkthrough)
   - datahub_setup.ipynb: dev-only DataHub ingestion scripts (extracted
     from old section 7 — keep dev API calls out of the teaching flow)
@@ -41,10 +41,10 @@ def code(*lines: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# step1.ipynb — refactored teaching notebook
+# module1.ipynb — refactored teaching notebook
 # ---------------------------------------------------------------------------
 
-STEP1 = [
+MODULE1 = [
     md(
         "# Step 1：模块一 — 数据资产可视化",
         "",
@@ -372,7 +372,7 @@ DATAHUB_SETUP = [
         "",
         "> **使用对象**：要修改 DataHub 接入流程 / 验证数据上报的开发者",
         "> **不推荐**：给「小白」学习用 —— 这是 OpenSearch / GraphQL 的硬核 API，",
-        "> 不在「数据治理入门」必修路径上。教学路径请回到 [`step1.ipynb`](./step1.ipynb)。",
+        "> 不在「数据治理入门」必修路径上。教学路径请回到 [`module1.ipynb`](./module1.ipynb)。",
         "",
         "## 这个 notebook 做什么",
         "",
@@ -658,11 +658,11 @@ def _wrap(cells: list[dict]) -> dict:
 
 def main() -> None:
     NB_DIR.mkdir(parents=True, exist_ok=True)
-    (NB_DIR / "step1.ipynb").write_text(
-        json.dumps(_wrap(STEP1), ensure_ascii=False, indent=1),
+    (NB_DIR / "module1.ipynb").write_text(
+        json.dumps(_wrap(MODULE1), ensure_ascii=False, indent=1),
         encoding="utf-8",
     )
-    print(f"wrote {NB_DIR / 'step1.ipynb'}  ({len(STEP1)} cells)")
+    print(f"wrote {NB_DIR / 'module1.ipynb'}  ({len(MODULE1)} cells)")
     (NB_DIR / "datahub_setup.ipynb").write_text(
         json.dumps(_wrap(DATAHUB_SETUP), ensure_ascii=False, indent=1),
         encoding="utf-8",

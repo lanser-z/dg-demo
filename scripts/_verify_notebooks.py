@@ -2,7 +2,7 @@
 
 Loads each .ipynb in notebook/ and runs every code cell in a fresh
 namespace, with the notebook's own `sys.path` setup. Reports any
-exception per cell. Used to verify the refactored step1.ipynb and
+exception per cell. Used to verify the refactored module1.ipynb and
 datahub_setup.ipynb execute cleanly.
 
 Run:
@@ -17,7 +17,7 @@ from pathlib import Path
 
 REPO = Path("/home/szs/Playground/dg-demo")
 NB_DIR = REPO / "notebook"
-NOTEBOOKS = ["step1.ipynb", "datahub_setup.ipynb"]
+NOTEBOOKS = ["module1.ipynb", "datahub_setup.ipynb"]
 
 
 def _exec_cell(src: str, ns: dict) -> None:

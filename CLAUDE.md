@@ -22,7 +22,7 @@
 | 理解 ELT vs ETL 选型分析 | `docs/ELTvsETL.md` |
 | 跑通 5 分钟演示流程 | `docs/Demo.md` |
 | 安装依赖、部署服务 | `docs/Deps.md` |
-| 参考 DataHub 接入实战 | `docs/Step1.md` |
+| 参考 DataHub 接入实战 | `docs/Module1.md` |
 | 排查数据生成 / 质量问题 | `src/dg_simulator/base_generator.py` |
 | 调整数据生成器配置 | `src/dg_simulator/config.py` |
 | 理解增量生成通用逻辑 | `src/dg_simulator/incremental_base.py` |

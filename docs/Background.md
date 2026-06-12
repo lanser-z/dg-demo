@@ -538,7 +538,7 @@ def validate_lims_ad(sample_type, ad_value):
 |--------|------------|------------|------------|------------|---------|
 | SAP-ERP | 97.2 | 91.5 | 99.8 | 95.1 | 95.7 |
 | PI-System | 98.1 | 93.8 | 99.5 | 89.2 | 95.0 |
-| LIMS | 94.6 | 88.3 | 96.2 | 91.7 | 92.5 |
+| LIMS | 94.6 | 88.3 | 96.4 | 91.7 | 92.5 |
 | OA | 92.1 | 85.0 | 94.8 | 90.5 | 90.3 |
 
 ### 3.4 数据安全分级
@@ -604,9 +604,9 @@ PI-System.tags (WAGAS_M001_FACE_A)
 
 | 系统 | 记录数 | 存储大小 | 说明 |
 |------|--------|---------|------|
-| SAP-ERP | 1809万 | 456.3 MB | 含KNA1/VBAK/VBAP主从数据 |
+| SAP-ERP | 1809万 | 456.5 MB | 含KNA1/VBAK/VBAP主从数据 |
 | PI-System | 7862万 | 364.6 MB | 100标签×1分钟间隔×2年 |
-| LIMS | 201万 | 56.3 MB | 煤质检测记录 |
+| LIMS | 201万 | 56.5 MB | 煤质检测记录 |
 | OA | 502.5万 | 118.4 MB | 审批流程记录 |
 | **合计** | **~1亿** | **995.6 MB** | — |
 
@@ -629,30 +629,94 @@ PI-System.tags (WAGAS_M001_FACE_A)
 
 ## 5. 后续治理路径
 
-```
-Phase 1 【数据接入】     ──▶  ODS贴源层建设
-  └ 数据采集、增量同步、历史数据入湖
+本节定义从 Demo 环境到生产部署的 5 个 Phase。**Phase 编号仅在本节统一；其他文档不再重复定义 Phase**。每个 Phase 给出：核心工作项 / 交付物 / 估时（参考 `docs/Design.md` 选型）。
 
-Phase 2 【标准建设】     ──▶  主数据管理（MDM）
-  └ 矿井、客户、物料编码标准化
+> 设计选型（ClickHouse vs Doris、Superset vs Metabase 等）见 `docs/Design.md` 相应章节；本节不重复。
 
-Phase 3 【质量提升】     ──▶  DWD主题层建设
-  └ 清洗规则、质量监控、问题工单
+### Phase 1【数据接入】 ── ODS 贴源层建设（3 个月）
 
-Phase 4 【资产运营】     ──▶  数据资产目录
-  └ 元数据采集、血缘标注、资产地图
+| 工作项 | 交付物 |
+|--------|--------|
+| 基础设施落地 | Delta Lake + Spark + Kafka 集群 |
+| 历史数据入湖 | ODS 贴源层 5 系统（sap_erp/pi_system/lims/oa/scada）全量 Parquet → Delta |
+| 增量同步 | Kafka Connect / Debezium 监听源库 CDC，写入 ODS Delta 表 |
 
-Phase 5 【分析赋能】     ──▶  DWA应用层
-  └ 产销分析、安全预警、成本核算
-```
+### Phase 2【治理落地 + 应用赋能】 ── 元数据 + 质量 + DWD + OLAP（4.5 个月）
+
+> **本节是合并定义**：原 `Background.md` 第 5 节的「标准建设」与 `Design.md` 第 10 节的「Phase 2 + 长期 OLAP」按工作依赖合并到此处。
+> **预估时间**比 Design.md 原 3 个月多 50%，因为吃进了原 Phase 5（OLAP / 跨系统宽表）的部分工作。
+
+| 工作项 | 交付物 | 估时 |
+|--------|--------|------|
+| DataHub 标准化接入 | GMS REST + Kafka 事件流（替代当前 `direct_es_bulk.py`） | 2 周 |
+| 自动血缘采集 | Spark / Flink 任务自动产出 lineage aspect（替代手工 `lineage_recipe.yaml`） | 3 周 |
+| GE Checkpoint 化 | 规则引擎持久化报告 + 定时调度（替代当前 `run_great_expectations.py` 一次性 CLI） | 2 周 |
+| DWD 主题层首批 | 销售 / 生产 2 个主题域 DWD 表（按主题重组，非当前按系统分） | 3 周 |
+| 主数据编码标准化 | 矿井 / 客户 / 物料编码映射表（MDM 轻量化，不建独立 MDM 系统；如源系统已统一则跳过） | 2 周（并行） |
+| 跨系统产销宽表 | `dwa_sales_production`（4 表 JOIN：PI生产 + LIMS煤质 + SAP订单 + KNA1客户） | 2 周 |
+| OLAP 引擎 | ClickHouse 或 Doris（参见 `docs/Design.md` 选型）+ Materialized View | 3 周 |
+| 可视化看板 | Apache Superset 或 DataHub Dashboard | 2 周 |
+| 4 个分析场景 SQL 模板 | 产销对比 / 煤质定价 / 安全趋势 / 订单履约 | 1 周 |
+
+**Phase 2 入口条件**：Phase 1 ODS 稳定运行 ≥ 1 个月；**Phase 2 出口条件**：4 个分析场景可在 OLAP 看板中切换维度实时出数。
+
+### Phase 3【质量与安全运营】 ── 监控 + 工单 + 安全（6 个月）
+
+| 工作项 | 交付物 |
+|--------|--------|
+| 实时质量监控 | Flink 流式规则引擎（替代当前 GE 批处理） |
+| 告警工单系统 | 与 OA / 钉钉 / 飞书集成，自动派单到 Owner |
+| DWM 汇总层 | 跨域汇总（销售+生产+煤质+安全） |
+| 安全分级与脱敏 | RBAC + ABAC + 字段级脱敏（按 6.6 章节定义的「核心/重要/一般」三级） |
+
+### Phase 4【资产运营】 ── 数据资产目录 + 开放 API（持续）
+
+| 工作项 | 交付物 |
+|--------|--------|
+| 元数据采集自动化 | 从 Phase 2 的 DataHub 接入延伸至全公司系统 |
+| 资产地图 | 5 系统 × N 主题 × N 字段的可视化探索 |
+| 数据资产开放 API | REST / GraphQL，按 Owner 审批后开放 |
+
+### Phase 5【分析与决策赋能】 ── 自助分析 + AI 增强（持续）
+
+| 工作项 | 交付物 |
+|--------|--------|
+| 自助分析 | Superset / Metabase 全员开放 |
+| AI 增强 | 异常检测、根因定位、智能修复建议（基于 LLM） |
+| 实时决策 | 流批一体 OLAP + 业务规则引擎 |
 
 ---
 
 ## 6. 演示目标
 
-本 Demo 通过 A 公司5个异构系统的模拟数据，全流程展示数据治理的核心能力。演示分为四个模块，依次递进：
+本 Demo 通过 A 公司5个异构系统的模拟数据，全流程展示数据治理的核心能力。演示分为多个模块，依次递进：
 
-### 6.1 模块一：数据资产可视化
+---
+
+### 6.0 演示流程总览
+
+**模块与 Phase 的归属关系**：
+
+| 模块 | 演示时长 | 归属 Phase |
+|------|---------|-----------|
+| 6.1 数据资产可视化 | 5 分钟 | **Phase 1** |
+| 6.2 质量检测与根因定位 | 10 分钟 | **Phase 1** |
+| 6.3 血缘全链路追溯 | 10 分钟 | **Phase 1** |
+| 6.4 清洗与质量提升 | 10 分钟 | **Phase 1** |
+| 6.5 ELT + DWA 主题宽表 | 10 分钟 | **Phase 1** |
+| 6.6 DWA 宽表分析 + DuckDB 即席查询 | 10 分钟 | **Phase 1** |
+| 6.7 主数据编码标准化 | 10 分钟 | **Phase 2**（跨系统分析前置依赖） |
+| 6.8 DataHub 生产接入 | 10 分钟 | **Phase 2** |
+| 6.9 自动血缘采集 | 10 分钟 | **Phase 2** |
+| 6.10 定时质量监控 | 10 分钟 | **Phase 2** |
+| 6.11 主题域 DWD | 10 分钟 | **Phase 2** |
+| 6.12 跨系统 DWA + OLAP | 10 分钟 | **Phase 2** |
+| 6.13~6.16 | 待设计 | **Phase 3** |
+
+> **模块与 Phase 的关系**：6.2~6.7 属于 Phase 1；6.8~6.13 属于 Phase 2（见下方）；6.14~6.16 属于 Phase 3（占位，未设计）。
+
+
+### 6.1 模块一：数据资产可视化（演示 5 分钟，归属 Phase 1）
 
 **目标**：展示数据接入后的全局可见性——有哪些数据、分布在哪里、质量如何。
 
@@ -667,7 +731,7 @@ Phase 5 【分析赋能】     ──▶  DWA应用层
 
 ---
 
-### 6.2 模块二：数据质量检测与根因定位
+### 6.2 模块二：数据质量检测与根因定位（演示 10 分钟，归属 Phase 1）
 
 **目标**：展示质量问题的自动化发现、告警和根因分析能力。
 
@@ -683,181 +747,375 @@ Phase 5 【分析赋能】     ──▶  DWA应用层
 
 ---
 
-### 6.3 模块三：数据血缘全链路追溯
+### 6.3 模块三：数据血缘全链路追溯（演示 10 分钟，归属 Phase 1 手工 / Phase 2 自动）
 
-**目标**：展示从 PI 传感器到 OA 流程的端到端血缘追踪能力。
+**目标**：展示跨系统数据从哪儿来、到哪儿去，能定位源头也能评估影响范围。
 
-**追溯链路（单次追溯）：**
+#### 🎯 业务视角
 
-```
-[PI WAGAS标签 M001_FACE_A_WAGAS]
-        │  矿井编码 M001 关联
-        ▼
-[LIMS 采样批次 LM_2023_08721]
-        │  批次号 CHARG 关联
-        ▼
-[SAP VBAP 销售行项目]
-        │  订单号 VBELN 关联
-        ▼
-[SAP VBAK 销售订单抬头]
-        │  客户号 KUNNR 关联
-        ▼
-[SAP KNA1 客户主数据]
-        │  合同触发
-        ▼
-[OA 付款审批流程 FL05000123]
-```
+**能告诉老板什么？**
+- 「这个订单的煤质数据从哪批样品来的」——点 SAP `vbak` 就能看到 `lims.samples`
+- 「这个样品有没有对应到销售」——点 LIMS 样品能看到哪些订单在用
+- 「LIMS 煤质异常会影响哪些订单」——血缘图上找下游，5 分钟出影响面清单
 
-**验证方式**：
-- 输入任意 PI 标签名称，自动向上追溯到 OA 流程
-- 输入任意订单号，自动展示该订单从煤质检测到财务审批的完整链路
-- 任意节点质量问题（如 LIMS 样品异常）可向下扩散影响分析，找出受影响订单
+**实际已建的血缘关系（4 条边）：**
 
----
+| 上游（源） | 下游（去向） | 业务含义 |
+|-----------|-------------|---------|
+| `sap_erp.vbak` | `lims.samples` | 销售订单对应到 LIMS 采样批次（按 KUNNR 关联） |
+| `sap_erp.vbap` | `lims.samples` | 销售行项目对应到 LIMS 采样批次 |
+| `sap_erp.vbak` | `dwd.vbak` | ODS 销售订单 → DWD 清洗后销售订单 |
+| `pi_system.tags` | `dwd.tags` | ODS PI 时序 → DWD 清洗后时序 |
+| `lims.samples` | `dwd.samples` | ODS LIMS 样品 → DWD 清洗后样品 |
 
-### 6.4 模块四：数据清洗与质量提升
+**演示剧本**（5 分钟）：
+1. 打开 DataHub UI → 搜索 `lims` → 进入 `lims.samples` dataset
+2. 切到 **Lineage** 标签页 → 展示 2 条上游（VBAK / VBAP）
+3. 切到下游 → 展示 1 条（DWD 清洗表）
+4. 类比点 `pi_system.tags` → 上游为空（源表）、下游指向 DWD
+5. 收尾：告诉老板「生产事故→煤质异常→订单延迟」这条 3 跳链路，用血缘图 + 影响列表两件套给业务方看
 
-**目标**：展示清洗规则落地后的质量提升效果。
+**暂时做不到的（待办）：**
+- PI → LIMS 采样批次 的 5 跳完整链路（当前 recipe 没建边，UI 上看到的是断点）
+- LIMS → SAP CHARG → VBAP → VBAK → KNA1 → OA 的产销全链
+- 业务人员读血缘图谱：当前 DataHub v1.6 UI 是英文 + 工程师视角，需用 `scripts/check_browse.py` 或截图辅助讲
 
-| 清洗动作 | 清洗前 | 清洗后 |
-|---------|-------|-------|
-| VBAP 关联失效行标记 | 1% 脏数据 | 0%，IS_VALID_LINK=1 |
-| PI 异常值线性插值 | 1% 异常 | 0%，value 平滑 |
-| PI 点位缺失前向填充 | 0.5% 缺失 | 0% |
-| LIMS 灰分有效性校验 | 部分超标 | 全部落入合理区间 |
+#### 🛠️ 技术视角
 
-**验证方式**：清洗前后各跑一遍质量检测，对比评分卡分数变化。
+**血缘配置**：`lineage_recipe.yaml`（YAML 描述 source/target/join key）。
 
----
-
-### 6.5 模块五：ELT 数据加工与主题宽表构建
-
-**目标**：展示从 ODS 贴源层到 DWD 主题层的数据加工能力，体现数据标准落地和主数据统一效果。
-
-| 演示场景 | 加工内容 | 验证效果 |
-|---------|---------|---------|
-| 矿井编码标准化 | PI/LIMS/SAP 三系统矿井编码统一映射 | 跨系统 JOIN 不再需要人工映射表 |
-| 客户主数据整合 | VBAK + KNA1 关联，补全客户标准名称 | 订单客户名称不一致率降至 0 |
-| 煤质与订单关联 | LIMS 批次 → SAP CHARG → VBAP → VBAK | 煤质数据首次可自动关联至销售订单 |
-| 主题宽表构建 | 产销一体化宽表（PI生产 + LIMS煤质 + VBAK订单 + KNA1客户） | 一张表覆盖完整产销链路 |
-| 数据回溯处理 | 历史数据按新标准重新加工 | 全量历史数据一致应用最新编码规则 |
-
-**验证方式**：
-- 执行 ELT 作业后，在 DWD 层看到标准化的主题表（如 `dwd_sales_production`）
-- 用一条 SQL 查出某矿井某日的产量（PI）、煤质（LIMS）、订单量（VBAK）
-- 对比加工前后数据一致率变化
-
-**典型 ELT 作业（产销宽表）**：
-
-```sql
--- 从 ODS 到 DWD 的产销一体化宽表
-SELECT
-    pi.mine_code          AS mine_code,
-    pi.production_date    AS production_date,
-    pi.daily_output       AS daily_output_kwh,
-    lims.avg_ad           AS coal_ash_pct,
-    lims.avg_qgr          AS coal_calorific_mjkg,
-    vbak.order_cnt        AS sales_order_cnt,
-    vbak.total_amount     AS sales_amount_cny,
-    kna1.customer_name    AS top_customer
-FROM dwd_production_daily pi
-LEFT JOIN dwd_coal_quality_daily lims
-    ON pi.mine_code = lims.mine_code
-    AND pi.production_date = lims.test_date
-LEFT JOIN dwd_sales_summary_daily vbak
-    ON pi.mine_code = vbak.mine_code
-    AND pi.production_date = vbak.order_date
-LEFT JOIN dwd_customer_std kna1
-    ON vbak.top_customer_id = kna1.kunnr
-```
-
----
-
-### 6.6 模块六：OLAP 多维分析与即席查询
-
-**目标**：展示治理后数据在分析场景中的可用性，以及跨系统联合分析能力。
-
-| 演示场景 | 分析内容 | 验证效果 |
-|---------|---------|---------|
-| 产销对比分析 | 各矿井日产量 vs 日发货量，按月汇总 | 发现库存异常（产量>>发货量） |
-| 煤质定价分析 | 按煤种（精煤/原煤）统计平均灰分与均价相关性 | 灰分每升1%，价差约15元/吨 |
-| 安全趋势分析 | 各矿井 WAGAS/CO 月度峰值分布 | 识别高风险矿井（M002 峰值显著偏高） |
-| 订单履约分析 | 订单交期达成率（承诺日期 vs 实际发货日期） | 找出履约率低于80%的客户和矿井 |
-| 即席查询 | 任意维度组合的交叉分析，无需预定义报表 | 临时分析需求由天级降至分钟级 |
-
-**验证方式**：
-- 在 OLAP 看板中切换时间范围、矿井维度，实时看到指标变化
-- 任意钻取（Drill-down）：年→月→日→单笔订单
-- 任意切片（Slice）：只看某一矿井或某一煤种的数据
-
-**典型 OLAP 查询（Mondrian / ClickHouse）**：
-
-```sql
--- 产销对比分析（ClickHouse Materialized View）
-SELECT
-    toStartOfMonth(production_date) AS stat_month,
-    mine_code,
-    coal_type,
-    sum(daily_output)    AS total_output_t,
-    sum(sales_amount)   AS total_sales_cny,
-    sum(sales_amount) / sum(daily_output) AS avg_price_cny_t
-FROM dwm_sales_production_fact
-WHERE production_date BETWEEN '2023-01-01' AND '2023-12-31'
-GROUP BY
-    toStartOfMonth(production_date),
-    mine_code,
-    coal_type
-ORDER BY stat_month, total_output_t DESC
-```
-
----
-
-### 6.7 演示环境参数
-
+**写入路径**：通过 DataHub GMS REST `/aspects` 写入 `upstreamLineage` aspect。
 ```bash
-# 演示命令速查
-uv run python scripts/generate_historical.py              # 生成历史数据
-uv run python scripts/generate_incremental.py 2024-01-01 # 生成增量
-uv run python scripts/generate_historical.py --help       # 查看可选参数
+uv run python scripts/emit_lineage.py
 ```
 
-| 环境参数 | 值 |
-|---------|-----|
-| 数据总量 | ~1 GB（历史） |
-| 总记录数 | ~1亿行 |
-| 时间跨度 | 2022-01 至 2023-06（18个月） |
-| 系统数量 | 5个异构系统 |
-| 质量问题比例 | 0.5%-2%（按系统） |
-| 增量频率 | 每日一次 |
+**Schema**：
+```yaml
+- source: sap_erp.vbak
+  target: lims.samples
+  join_key: KUNNR
+  type: business_lineage  # 跨系统 JOIN
+- source: sap_erp.vbak
+  target: dwd.vbak
+  type: processing_lineage  # 加工血缘（ODS→DWD）
+```
+
+**数据落点**：
+- GMS MySQL 库：`metadata_aspect` 表的 `upstreamLineage` aspect
+- DataHub UI Lineage 视图：从 OpenSearch 索引 `datasetindex_v2` 读出来渲染
 
 ---
 
-### 6.8 演示流程建议
+### 6.4 模块四：数据清洗与质量提升（演示 10 分钟，归属 Phase 1）
 
+**目标**：展示从 ODS 原始层到 DWD 清洗层，脏数据怎么变干净。
+
+#### 🎯 业务视角
+
+**能告诉老板什么？**
+- 同一份数据清洗前质量分 C/D，清洗后能上 B/A
+- 清洗后下游报表不再需要逐条挑异常
+- 清洗规则可复用，新进数据按规则自动跑
+
+**实际已做的清洗（3 类）：**
+
+| 清洗类型 | 业务含义 | 实际规则 |
+|---------|---------|---------|
+| 去空 | 关键字段不能为空 | 业务主键、销售金额、时间戳 |
+| 去重 | 同一笔不能录两次 | 主键去重 |
+| 规范化 | 字段格式统一 | 矿井编码大写、客户号去前导零、日期统一 ISO |
+
+**演示剧本**（5 分钟）：
+1. 打开 module1.ipynb → 「步骤 1：资产目录与存储分布」
+2. 对比 ODS 层（`data/historical/sap_erp/vbak_year=2022.parquet`）和 DWD 层（`data/lakehouse/dwd/sap_erp/dwd_vbak/`）的行数
+3. 跑 `ingest_to_deltalake.py --layer dwd` → 给出「清洗前 3,014,284 行 → 清洗后 2,999,312 行（剔除 14,972 行，0.5%）」的数字
+4. 收尾：跑一次质量检测，对比评分卡分变化
+
+**暂时做不到的（演示版简化）**：
+- 智能清洗：VBAP 关联失效行标记（IS_VALID_LINK 列）— 计划里有，实际没实现
+- PI 异常值线性插值：未实现，仅在质量检测里识别为异常
+- LIMS 灰分有效性校验并自动修正：未实现，仅在 GE 规则里识别为异常
+
+**这些「待办」对业务意味着**：当前 DWD 层是「干净但不修复」，质量问题需要源头系统改单；DWD 只保证「格式统一、可下游消费」。
+
+#### 🛠️ 技术视角
+
+**执行命令**：
+```bash
+uv run python scripts/ingest_to_deltalake.py --layer ods   # ODS 入湖
+uv run python scripts/ingest_to_deltalake.py --layer dwd   # DWD 清洗
 ```
-[Step 1] 数据资产概览（5分钟）
-  → 打开平台首页 → 展示5系统接入状态 → 展示质量评分卡
 
-[Step 2] 质量告警演示（10分钟）
-  → 触发全量质量检测 → 展示告警列表 → 逐条定位根因
-  → 重点：VBAP关联失效 + PI异常突升
+**存储路径**：
+- ODS：`data/lakehouse/ods/{system}/{table}/`（Delta Lake 格式，Parquet + _delta_log）
+- DWD：`data/lakehouse/dwd/{system}/{table}/`
 
-[Step 3] 血缘追溯演示（10分钟）
-  → 输入标签 M001_FACE_A_WAGAS → 展示完整链路
-  → 输入订单号 VBELN=1000001301 → 展示关联煤质数据和审批流程
+**清洗规则实现**：见 `scripts/ingest_to_deltalake.py` 的 `--layer dwd` 分支（pandas 实现，无 GE 引擎参与清洗阶段；GE 只在质量检测阶段用）。
 
-[Step 4] ELT 数据加工演示（10分钟）
-  → 执行产销宽表 ELT 作业 → 展示 DWD 层主题表
-  → 对比加工前后：跨系统矿井编码一致性、客户名称覆盖率
+**Delta Lake 优势（讲解点）**：
+- ACID 事务：清洗过程中断不会留下半截
+- Schema 演进：上游加列不会被拒绝
+- Time Travel：`DeltaTable(...).history()` 可回溯到任意版本
 
-[Step 5] OLAP 即席分析演示（10分钟）
-  → 在 OLAP 看板切换矿井/煤种维度 → 展示实时汇总指标
-  → 钻取：年度→月度→日度→单笔订单
+**与 GE 质量检测的关系**：
+- 清洗 = 已知脏数据按规则改
+- 质量检测 = 跑规则看分数，**不自动改数据**
+- 两者解耦：质量检测可重复跑出评分卡；清洗是一次性 ETL 动作
 
-[Step 6] 清洗效果对比（5分钟）
-  → 运行清洗任务 → 前后评分对比 → 展示提升效果
+---
 
-[Step 7] 总结与路线图（5分钟）
-  → 回顾演示成果 → 介绍后续5个Phase推进计划
+### 6.5 模块五：ELT 数据加工与 DWA 主题宽表（演示 10 分钟，归属 Phase 1）
+
+**目标**：从 DWD 清洗层构建 DWA 汇总宽表，支撑业务报表和即席查询。
+
+#### 🎯 业务视角
+
+**能告诉老板什么？**
+- 销售部想看「日销售汇总」：直接查 DWA 表，不用再跑 5 个 SQL JOIN
+- 安全部想看「传感器告警排名」：直接查 `dwa_tag_alarm` Top 20
+- 煤质中心想看「月度煤质报告」：直接查 `dwa_coal_quality`
+
+**实际已构建的 3 张 DWA 宽表：**
+
+| DWA 表名 | 业务场景 | 主要字段 | 数据源 |
+|---------|---------|---------|--------|
+| `dwa_sales_daily` | 日销售汇总 | sale_date, order_count, customer_count, total_amount | sap_erp.vbak |
+| `dwa_tag_alarm` | 传感器告警 Top | tag_name, alarm_count, alarm_pct | pi_system.tags |
+| `dwa_coal_quality` | 月度煤质 | mine_code, year_month, coal_type, avg_ash, avg_qgr | lims.samples |
+
+**演示剧本**（5 分钟）：
+1. 跑 `build_dwa_models.py --layer dwa` → 输出 3 张宽表的行数、存储大小
+2. 用 DuckDB 查 `dwa_sales_daily` → 出最近 30 天销售趋势
+3. 查 `dwa_coal_quality` → 出煤种价格分布（结合 step1 业务影响翻译讲）
+
+**暂时做不到的（演示版简化）**：
+- 跨系统产销一体化宽表 `dwd_sales_production`（PI生产 + LIMS煤质 + SAP订单 + KNA1客户）—— 计划承诺过，实际没建
+- 矿井编码标准化映射表：实际靠源系统字段值已经一致（如都叫 `M001`），没单独建维表
+- 客户主数据整合（VBAK + KNA1 补全客户标准名称）：未实现
+- 历史数据回溯重处理：未实现，DWA 只跑最新一次 ETL
+
+**对业务的影响**：当前 3 张 DWA 宽表是**单系统**的，跨系统分析需要业务人员自己写 SQL JOIN。后续 Phase 2 才会补跨系统宽表。
+
+#### 🛠️ 技术视角
+
+**执行命令**：
+```bash
+uv run python scripts/build_dwa_models.py --layer dwa
 ```
+
+**引擎**：DuckDB（in-memory OLAP，连 Parquet/Delta Lake 文件直接算）
+> 注：pyproject.toml 暂未显式声明 `duckdb` 依赖（仅 `build_dwa_models.py` 直接 import）；如需重跑需 `uv pip install duckdb`。
+
+**DWA 宽表示例 SQL（实际 build_dwa_models.py 中的片段）**：
+
+```sql
+-- dwa_sales_daily 聚合
+SELECT
+    order_date                          AS sale_date,
+    COUNT(DISTINCT vbeln)               AS order_count,
+    COUNT(DISTINCT kunnr)               AS customer_count,
+    SUM(netwr)                          AS total_amount
+FROM dwd_vbak
+WHERE order_date BETWEEN '2022-01-01' AND '2023-06-30'
+GROUP BY order_date
+ORDER BY order_date;
+```
+
+**存储路径**：`data/lakehouse/dwa/{system}/{dwa_table}/`
+
+---
+
+### 6.6 模块六：DWA 宽表分析 + DuckDB 即席查询（演示 10 分钟，归属 Phase 1 DuckDB 演示版 / Phase 2 ClickHouse + Superset）
+
+**目标**：用 DWA 宽表 + DuckDB 即席查询做业务分析，验证治理后数据的可用性。
+
+#### 🎯 业务视角
+
+**能告诉老板什么？**
+- 业务人员不需要写复杂 SQL：宽表已经聚合好，直接看数
+- 临时分析需求：从「提需求→排期→出报表」的 3~5 天，降到「业务自己查 DWA 表」的 10 分钟
+- 4 个高频分析场景（按当前实现可达范围）：
+
+| 分析场景 | 数据源 | 业务结论 | 当前可达 |
+|---------|--------|---------|---------|
+| 销售趋势 | `dwa_sales_daily` | 最近 30 天订单数 / 销售额 / 客户数 | ✅ 可查 |
+| 告警传感器排名 | `dwa_tag_alarm` | Top 20 高频告警传感器，定位维护重点 | ✅ 可查 |
+| 月度煤质 | `dwa_coal_quality` | 各矿井各煤种灰分 / 热值月度均值 | ✅ 可查 |
+| 跨系统产销对比 | dwa + dwd JOIN | 矿井日产量 vs 日发货量 | ⚠️ 可查但需自己写 JOIN |
+
+**演示剧本**（5 分钟）：
+1. `build_dwa_models.py` 跑出 3 张 DWA 表
+2. 用 `duckdb` CLI 或 Python 临时 SQL 查 Top 10 告警传感器 → 给出「这 10 个点位占 80% 告警量」结论
+3. 查煤质月度走势 → 给出「3 月精煤灰分普遍偏高」结论
+4. 收尾：演示「临时问个数字不用等 IT」
+
+**暂时做不到的**：
+- 产销对比分析中「产量>>发货量 = 库存异常」需要 PI 与 SAP 跨系统 JOIN，当前 DWA 没建跨系统表
+- 煤质定价分析「灰分升 1% 价差 15 元/吨」是**业务经验**，DWA 表里有灰分和销售额但没自动算相关系数
+- 订单履约率（承诺 vs 实际）：LIKP/LIPS 表里有数据但没专门建 DWA 宽表
+- 钻取（年→月→日→单笔）/ 切片（单矿井）：需要 OLAP 看板，当前用 DuckDB CLI 替代
+
+#### 🛠️ 技术视角
+
+**执行方式**：
+```bash
+# 命令行即席查询
+duckdb -c "SELECT * FROM 'data/lakehouse/dwa/sap_erp/dwa_sales_daily' LIMIT 10;"
+
+# Python 内嵌查询
+import duckdb
+duckdb.connect().execute("""
+    SELECT mine_code, year_month, avg_ash
+    FROM 'data/lakehouse/dwa/lims/dwa_coal_quality'
+    ORDER BY avg_ash DESC LIMIT 5;
+""").fetchall()
+```
+
+**后续 Phase 2 路线**（完整定义见第 5 节）：
+- 部署 ClickHouse / Doris 做 OLAP 引擎
+- 用 Apache Superset / DataHub Dashboard 做可视化看板
+- 补建跨系统产销宽表 `dwa_sales_production`
+- 补建 4 个分析场景的 SQL 模板
+
+**当前 Demo 边界**（演示时**必须**明确说）：
+- 这是**数据可用性验证**，不是生产级 OLAP
+- 4 个分析场景里 1、2、3 能现场出数，4（产销对比）需要业务自己写 JOIN
+- 临时查询 5 分钟能出，生产报表需等 Phase 2
+
+---
+
+### 6.7 模块七：主数据编码标准化（演示 10 分钟，归属 Phase 2）
+
+**目标**：统一矿井 / 客户 / 物料编码，为跨系统分析（主题域 DWD、产销宽表）扫除 JOIN 障碍。
+
+> **承上启下**：Phase 1 各系统数据独立可用（6.2~6.7）；Phase 2 跨系统分析（6.11 主题域 DWD → 6.12 跨系统产销宽表）依赖统一的编码体系。本模块是这两者的桥梁。
+
+| 演示点 | Phase 1（当前） | Phase 2（升级后） |
+|--------|---------------|-----------------|
+| 矿井编码 | PI/LIMS/SAP 三系统各用自己的命名（如 PI 称 `M001`，SAP 称 `M001`，字面一致但字段名不同） | 统一矿井维表（`mine_code → mine_name → mine_type`），源系统字段映射到标准编码 |
+| 客户编码 | VBAK 的 KUNNR 和 KNA1 的 KUNNR 各自独立，无校验 | 客户维表（`kunnr → customer_name → region → credit_level`），KUNNR 唯一性校验 |
+| 物料编码 | MARA 物料编码未在 LIMS/OA 中关联 | 物料维表（`matnr → mat_desc → mat_type`），跨系统关联 |
+| 标准化方式 | 源系统已统一，无需映射（如矿井编码字面已一致） | 建轻量维表（不建独立 MDM 系统），在 DWD 层 JOIN 时应用映射 |
+| 与 DWA 的关系 | `dwa_sales_daily` 等单系统宽表不受影响 | `dwa_sales_production` 跨 4 表 JOIN 依赖矿井/客户编码统一 |
+
+**Phase 1 教学**：`notebook/module1.ipynb` 第 3 节（`dwd_vbak` 清洗脚本，矿井编码已是字面统一，无需显式映射）
+
+**Phase 2 教学**：展示矿井维表 + 客户维表 schema + DWD 层 JOIN 映射 SQL
+
+**验证方式**：DWD 层查询中，PI矿井编码 = SAP矿井编码 = LIMS矿井编码，三表 JOIN 无需 `WHERE a.mine = b.mine AND b.mine = c.mine` 的多表映射子查询。
+
+---
+
+### 6.8 模块八：DataHub 生产接入（演示 10 分钟，归属 Phase 2）
+
+**目标**：从「手工直写 OpenSearch」升级为「Kafka 事件流 → GMS → OpenSearch 自动同步」。
+
+| 演示点 | Phase 1（当前） | Phase 2（升级后） |
+|--------|---------------|-----------------|
+| 接入方式 | `scripts/direct_es_bulk.py` 直接 bulk 写入 OpenSearch | GMS REST API + Kafka 事件流（DataHub actions 服务消费） |
+| 新表注册 | 手动跑 `emit_browsepaths.py` | 新 Parquet 文件落地 → Kafka 事件 → DataHub 自动发现 |
+| 元数据更新 | 手动跑 `emit_browsepaths.py` | Kafka CDC 事件驱动，无需人工干预 |
+| 资产一致性 | ES 和 MySQL 可能短暂不一致 | 最终一致（GMS 为唯一写入路径） |
+
+**Phase 1 教学**：`notebook/datahub_setup.ipynb` 第 3 节（手动 bulk 写入 + 验证 ES count）
+
+**Phase 2 教学**：`datahub-quickstart.yml` 中的 `datahub-actions` 服务配置 + Kafka topic 消费逻辑
+
+**验证方式**：新 Parquet 文件入湖后，30 秒内 DataHub UI 出现对应 dataset；对比 Phase 1 需手动跑脚本。
+
+---
+
+### 6.9 模块九：自动血缘采集（演示 10 分钟，归属 Phase 2）
+
+**目标**：从「手工 `lineage_recipe.yaml`」升级为「Spark/Flink 任务自动解析 SQL 产出 lineage aspect」。
+
+| 演示点 | Phase 1（当前） | Phase 2（升级后） |
+|--------|---------------|-----------------|
+| 血缘定义 | 手工 YAML（`lineage_recipe.yaml`），5 条边 | Spark/Flink 任务从 SQL 解析 FROM/JOIN 自动产出，理论上覆盖所有 DWD/DWA 表 |
+| 血缘格式 | 手工写入 GMS upstreamLineage aspect | OpenLineage 标准，DataHub actions 服务消费 |
+| 血缘更新 | 每次改 recipe 手动跑 `emit_lineage.py` | DWD/DWA ETL 任务完成后自动追加，无需人工 |
+| 血缘覆盖 | 5 条（手工维护） | 理论上 N×M 条（ETL 任务自动发现） |
+
+**Phase 1 教学**：`notebook/module1.ipynb` 第 4 节（血缘图 + 5 条边的手工录入）
+
+**Phase 2 教学**：展示 OpenLineage 配置 + Spark 任务血缘截图（DataHub UI 自动刷新）
+
+**验证方式**：新建 1 张 DWD 表后，无需手动跑脚本，DataHub UI Lineage 标签页在 ETL 任务完成后自动出现上游/下游。
+
+**待验证风险**：DataHub v1.6 的 upstreamLineage aspect 是否支持 OpenLineage 格式；如不支持需自定义 emitter。
+
+---
+
+### 6.10 模块十：定时质量监控（演示 10 分钟，归属 Phase 2）
+
+**目标**：从「一次性 GE CLI」升级为「定时任务 + 持久化报告 + Owner 通知」。
+
+| 演示点 | Phase 1（当前） | Phase 2（升级后） |
+|--------|---------------|-----------------|
+| 执行方式 | 手动跑 `scripts/run_great_expectations.py` | Airflow / Cron 每日凌晨自动跑 |
+| 报告存储 | CLI 输出在终端，丢了就没 | 持久化 JSON/HTML 报告（MinIO 或 NFS） |
+| 告警触发 | 看到分数低，自己判断 | 分数低于阈值（< 70）自动发邮件给 Owner |
+| 趋势历史 | 只有单次跑分 | 每次跑分写入时序库（ClickHouse），支持分数趋势图 |
+
+**Phase 1 教学**：`notebook/module1.ipynb` 第 2 节（跑 GE → 看评分卡）
+
+**Phase 2 教学**：Airflow DAG 截图 + 邮件告警示例 + ClickHouse 分数趋势折线图
+
+**验证方式**：执行 DAG 后，邮件收到告警（若分数 < 70）；ClickHouse 中查询历史分数趋势。
+
+---
+
+### 6.11 模块十一：主题域 DWD（演示 10 分钟，归属 Phase 2）
+
+**目标**：从「按系统分 DWD 表」升级为「按业务主题重组 DWD 表」。
+
+| 演示点 | Phase 1（当前） | Phase 2（升级后） |
+|--------|---------------|-----------------|
+| 表组织方式 | `dwd/sap_erp/dwd_vbak`（按系统分） | `dwd/sales/vbak` / `dwd/production/tags`（按主题分） |
+| 主题域维表 | 无 | 矿井维表、客户维表（来自 6.1 主数据标准化） |
+| 主题域数量 | 1（不分主题） | 首批：销售主题（vbak/vbap/kna1）+ 生产主题（tags/samples） |
+| 跨主题关联 | 需要跨目录 JOIN | 同一主题目录下 JOIN；跨主题通过维表关联（来自 6.1） |
+
+**Phase 1 教学**：`notebook/module1.ipynb` 第 3 节（ODS → DWD 入湖脚本，按系统分目录）
+
+**Phase 2 教学**：展示新目录结构 + 主题域维表（来自 6.1）+ 清洗规则按主题定义
+
+**验证方式**：`data/lakehouse/dwd/` 下存在 `sales/` 和 `production/` 两个子目录；维表在 `dwd/_dimensions/` 目录。
+
+---
+
+### 6.12 模块十二：跨系统 DWA + OLAP 即席查询（演示 10 分钟，归属 Phase 2）
+
+**目标**：从「单系统 DWA 宽表 + DuckDB」升级为「4 表 JOIN 跨系统产销宽表 + ClickHouse Materialized View + Superset 看板」。
+
+| 演示点 | Phase 1（当前） | Phase 2（升级后） |
+|--------|---------------|-----------------|
+| DWA 宽表 | 3 张单系统宽表（`dwa_sales_daily` / `dwa_tag_alarm` / `dwa_coal_quality`） | 1 张跨系统产销宽表 `dwa_sales_production`（PI生产 + LIMS煤质 + SAP订单 + KNA1客户，依赖 6.1 矿井/客户维表） |
+| 查询引擎 | DuckDB（内存 CLI） | ClickHouse / Doris（物化视图自动刷新） |
+| 可视化 | DuckDB → CSV → Excel 透视 | Superset 看板切换维度实时出图 |
+| 分析场景 | 产销对比需自己写 JOIN | 看板内置 4 个场景（产销对比 / 煤质定价 / 安全趋势 / 订单履约） |
+
+**Phase 1 教学**：`notebook/module1.ipynb` 第 5 节（DuckDB 查 DWA + 4 个分析场景示例）
+
+**Phase 2 教学**：Superset 看板截图（4 个场景）+ ClickHouse Materialized View 定义
+
+**验证方式**：在 Superset 看板中切换矿井/煤种/时间维度，实时看到指标变化；跨矿井产销对比图一键出数。
+
+---
+
+### 6.13 模块十三（占位，归属 Phase 3）
+
+> Phase 3 尚未设计。预期主题：Flink 实时质量监控 + 告警工单集成。
+
+---
+
+### 6.14 模块十四（占位，归属 Phase 3）
+
+> Phase 3 尚未设计。预期主题：RBAC + ABAC 安全分级与字段级脱敏。
+
+---
+
+### 6.15 模块十五（占位，归属 Phase 3）
+
+> Phase 3 尚未设计。预期主题：自助分析与 AI 增强（LLM 根因定位）。
 
