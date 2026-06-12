@@ -6,6 +6,9 @@ Public API:
   - build_asset_catalog / SYSTEM_INFO / all_datasets
   - plot_storage_distribution / plot_quality_scorecard / plot_security_levels / plot_business_impact
   - estimate_annual_cost / format_business_impact_line / COST_TABLE
+  - run_ge_scan (模块二)
+  - analyze_vbap_invalid_links / analyze_pi_missing_tags / analyze_pi_anomalies / analyze_lims_ad_outliers (模块二)
+  - plot_root_cause_distribution / plot_alert_heatmap / plot_system_alert_summary (模块二)
 
 The notebook module1.ipynb imports from this module instead of defining
 inline functions, so 小白 can focus on concepts and visualizations
@@ -18,8 +21,13 @@ from .business_impact import (
     format_business_impact_line,
 )
 from .catalog import SYSTEM_INFO, all_datasets, build_asset_catalog
+from .ge_scan import run_ge_scan
 from .quality import (
     DIMENSION_WEIGHTS,
+    analyze_lims_ad_outliers,
+    analyze_pi_anomalies,
+    analyze_pi_missing_tags,
+    analyze_vbap_invalid_links,
     calc_quality_score,
     check_lims_quality,
     check_oa_quality,
@@ -28,10 +36,13 @@ from .quality import (
 )
 from .visualization import (
     SYSTEM_COLORS,
+    plot_alert_heatmap,
     plot_business_impact,
     plot_quality_scorecard,
+    plot_root_cause_distribution,
     plot_security_levels,
     plot_storage_distribution,
+    plot_system_alert_summary,
 )
 
 __all__ = [
@@ -51,10 +62,21 @@ __all__ = [
     "check_oa_quality",
     "check_pi_quality",
     "check_sap_quality",
+    # root cause analysis (模块二)
+    "analyze_lims_ad_outliers",
+    "analyze_pi_anomalies",
+    "analyze_pi_missing_tags",
+    "analyze_vbap_invalid_links",
+    # GE scan (模块二)
+    "run_ge_scan",
     # visualization
     "SYSTEM_COLORS",
     "plot_business_impact",
     "plot_quality_scorecard",
     "plot_security_levels",
     "plot_storage_distribution",
+    # root cause / alert viz (模块二)
+    "plot_alert_heatmap",
+    "plot_root_cause_distribution",
+    "plot_system_alert_summary",
 ]
