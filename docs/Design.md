@@ -979,26 +979,6 @@ services:
 
 ## 10. 演进路径
 
-```
-当前（Demo阶段）
-  └─ 模拟数据 + 质量规则验证 + 血缘Demo
-
-Phase 1（3个月）
-  └─ Delta Lake + Spark + Kafka 基础设施
-  └─ ODS贴源层建设 + 全量数据入湖
-
-Phase 2（3个月）
-  └─ DataHub 接入 + 自动血缘采集
-  └─ Great Expectations 质量规则落地
-  └─ DWD主题层首批主题（销售/生产）
-
-Phase 3（6个月）
-  └─ DWM 汇总层 + DWA 应用层
-  └─ 告警工单系统
-  └─ 安全分级与脱敏
-
-长期
-  └─ 实时质量监控（Flink）
-  └─ 数据资产开放API
-  └─ 自助分析（Superset/Metabase）
-```
+> 本节已删除。Phase 实现路径的唯一权威定义在 `docs/Background.md` 第 5 节「后续治理路径」。
+> 本文档专注技术选型与架构设计，不重复定义 Phase 计划。
+> 如需了解 Phase 2 包含哪些工作（DataHub 接入 / 自动血缘 / GE Checkpoint 化 / DWD 主题层 / 跨系统宽表 / OLAP 引擎 / 可视化看板），请查阅 `docs/Background.md` 第 5 节。

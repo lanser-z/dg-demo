@@ -8,16 +8,18 @@
 
 ```bash
 # 提前拉取，避免启动时超时
-docker pull acryldata/datahub-gms:v1.6.0 &
-docker pull acryldata/datahub-frontend-react:v1.6.0 &
-docker pull acryldata/datahub-actions:v1.6.0 &
-docker pull acryldata/datahub-upgrade:v1.6.0 &
+docker pull acryldata/datahub-gms:${DATAHUB_VERSION:-v1.6.0} &
+docker pull acryldata/datahub-frontend-react:${DATAHUB_VERSION:-v1.6.0} &
+docker pull acryldata/datahub-actions:${DATAHUB_VERSION:-v1.6.0} &
+docker pull acryldata/datahub-upgrade:${DATAHUB_VERSION:-v1.6.0} &
 docker pull opensearchproject/opensearch:2.19.3 &
-docker pull neo4j:4.4.9-community &
 docker pull mysql:8.2 &
 docker pull confluentinc/cp-kafka:8.0.0 &
 wait
 ```
+
+> **架构变更**（`bb03262` 提交起）：去掉了 Neo4j（`27474` / `27687` 端口停用）。
+> 血缘录入现在只用 GMS REST API，不再做 Neo4j fallback。
 
 ### 1.2 一键启动
 
@@ -30,11 +32,10 @@ docker compose -f datahub-quickstart.yml up -d
 
 | 问题 | 原因 | 修复 |
 |------|------|------|
-| Neo4j healthcheck 永远 unhealthy | 容器内无 wget/nc/curl | 改用 `bash -c 'exec 3<>/dev/tcp/localhost/7474'` |
-| APOC 插件下载超时 | GitHub 网络不通 | 去掉 NEO4JLABS_PLUGINS，Neo4j 4.4 默认不带 APOC |
-| Delta Lake 写入 MinIO S3 超时 | MinIO 无认证时 S3 scheme 被拒绝 | 改用本地文件系统存储（`data/lakehouse/`） |
-| Great Expectations v1.x API 变更 | PandasDataset/expectation_type 参数名变化 | 使用轻量 GE 风格规则（pandas 执行） |
-| GMS /aspects 返回 400 | upstreamLineage aspect 不支持该端点 | 换用 Neo4j Bolt 直写血缘图 |
+| Delta Lake 写入 MinIO S3 超时 | MinIO 无认证时 S3 scheme 被拒绝 | 改用本地文件系统存储（`data/lakehouse/`，不依赖对象存储） |
+| Great Expectations v1.x API 变更 | PandasDataset/expectation_type 参数名变化 | 使用轻量 GE 风格规则（pandas 执行）—— 见 `src/dg_education/quality.py` |
+| ~~Neo4j healthcheck 永远 unhealthy~~ | （已删除 Neo4j 容器，此问题不再适用） | 改用 GMS REST API 写血缘（`scripts/emit_lineage.py` 不再尝试 Neo4j fallback） |
+| ~~GMS /aspects 返回 400~~ | （实测 GMS 上游 lineage 可正常写入） | `emit_lineage.py` 当前只走 GMS REST |
 
 **各服务端口：**
 
@@ -42,8 +43,6 @@ docker compose -f datahub-quickstart.yml up -d
 |------|------|------|
 | 前端 Web UI | 29002 | 浏览器访问 |
 | GMS API | 28080 | 后端接口 |
-| Neo4j 浏览器 | 27474 | 图数据库 UI |
-| Neo4j Bolt | 27687 | 程序连接 |
 | OpenSearch | 29200 | 搜索索引 |
 | MySQL | 23306 | 元数据存储 |
 | Kafka | 29092 | 消息队列 |
@@ -52,8 +51,7 @@ docker compose -f datahub-quickstart.yml up -d
 
 ```
 kafka-broker (healthy) ─┬─→ mysql (healthy)
-                         ├─→ opensearch (healthy)
-                         └─→ neo4j (healthy)
+                         └─→ opensearch (healthy)
                                 │
                          system-update-quickstart (一次性 setup 任务)
                                 │
@@ -93,7 +91,6 @@ uv sync
 - `requests>=2.31` — HTTP 客户端
 - `great-expectations>=0.18` — 数据质量规则引擎
 - `deltalake>=0.12` — Delta Lake 读写
-- `duckdb>=1.5` — OLAP 聚合计算
 
 ---
 
@@ -182,11 +179,11 @@ for h in d.get('hits',{}).get('hits',[]):
 
 **基础设施层（100%）**
 - [x] datahub-quickstart.yml 完整可运行（v1.6.0）
-- [x] Neo4j 4.4.9 已集成（healthcheck 使用 bash /dev/tcp）
 - [x] OpenSearch 2.19.3 作为搜索后端
 - [x] MySQL 8.2 + Kafka 8.0.0 健康运行
 - [x] Delta Lake 本地文件系统存储（无外部依赖）
 - [x] 所有脚本端口已统一（28080/29200/23306）
+- [x] 已移除 Neo4j 依赖（架构变更 bb03262）
 
 **数据资产层（100%）**
 - [x] 12 张数据表已录入 OpenSearch 索引
@@ -210,9 +207,9 @@ for h in d.get('hits',{}).get('hits',[]):
 
 **血缘关系层（100%）**
 - [x] lineage_recipe.yaml 血缘关系配置
-- [x] emit_lineage.py 通过 Neo4j Bolt 直写血缘图
+- [x] emit_lineage.py 通过 GMS REST API 写血缘（`/aspects` upstreamLineage）
 - [x] 4 条血缘边（sap_erp→lims / dwd清洗血缘 / pi_system→dwd）
-- [x] GMS upstreamLineage aspect 不支持，换用 Neo4j 直写
+- [x] 已移除 Neo4j fallback（架构变更 bb03262）
 
 **分层建模层（100%）**
 - [x] DuckDB OLAP 引擎计算 DWA 汇总
@@ -231,7 +228,7 @@ for h in d.get('hits',{}).get('hits',[]):
 ```
 Step 1: 启动服务
   docker compose -f datahub-quickstart.yml up -d
-  → 确认 6 个服务全部 healthy
+  → 确认 5 个服务全部 healthy
 
 Step 2: 上报数据资产
   uv run python scripts/direct_es_bulk.py
@@ -255,8 +252,10 @@ Step 4: 打开 DataHub Frontend
 
 **教学目标**：用 Great Expectations 规则引擎发现数据质量问题
 
+教学入口：`notebook/module1.ipynb` → 「步骤 2：质量评分卡 + 业务影响翻译」（含 4 系统覆盖率 + A/B/C/D 评分 + 业务影响白话翻译）。
+
+如需 dev 单独跑：
 ```bash
-# 运行质量检测
 uv run python scripts/run_great_expectations.py
 ```
 
@@ -354,25 +353,24 @@ uv run python scripts/build_dwa_models.py --layer dwa
 **教学目标**：展示跨系统数据血缘关系和追溯能力
 
 ```bash
-# 写入血缘到 Neo4j
+# 写入血缘到 GMS（upstreamLineage aspect）
 uv run python scripts/emit_lineage.py
 ```
 
 **预期输出**：
 ```
 Processing: lims.samples
-  [FALLBACK] Neo4j write...
-  [Neo4j] sap_erp.vbak --> lims.samples
-  [Neo4j] sap_erp.vbap --> lims.samples
+  [GMS] sap_erp.vbak --> lims.samples
+  [GMS] sap_erp.vbap --> lims.samples
 
 Processing: dwd.tags
-  [Neo4j] pi_system.tags --> dwd.tags
+  [GMS] pi_system.tags --> dwd.tags
 
 Processing: dwd.vbak
-  [Neo4j] sap_erp.vbak --> dwd.vbak
+  [GMS] sap_erp.vbak --> dwd.vbak
 
 Processing: dwd.samples
-  [Neo4j] lims.samples --> dwd.samples
+  [GMS] lims.samples --> dwd.samples
 
 LINEAGE GRAPH
   sap_erp.vbak --> lims.samples
@@ -403,12 +401,12 @@ LINEAGE GRAPH
 ```
 
 **Before**：不知道数据从哪来、谁在用
-**After**：Neo4j 图数据库展示完整血缘链路，影响分析一键追溯
+**After**：DataHub GMS 的 `upstreamLineage` aspect 录入完整血缘链路，DataHub UI Lineage 标签页一键追溯
 
 **教学要点**：
-- UpstreamLineage aspect（GMS 不支持，换用 Neo4j 直写）
+- upstreamLineage aspect 通过 GMS REST `/aspects` 写入
 - 数据血缘的两个维度：业务血缘（跨系统 JOIN）vs 加工血缘（DWD/DWA 清洗）
-- Neo4j 图数据库的社区发现算法找核心数据节点
+- DataHub UI 的 Lineage 视图支持上下游追溯
 
 ---
 
@@ -419,10 +417,16 @@ LINEAGE GRAPH
 cd /home/szs/Playground/dg-demo
 docker compose -f datahub-quickstart.yml up -d
 
-# 上报资产
+# 上报资产（dev 用，普通用户跳过；notebook 中会讲）
 uv run python scripts/direct_es_bulk.py
 
-# 质量检测
+# 教学入口（小白从这里开始）
+jupyter notebook notebook/module1.ipynb
+
+# 开发者上手报流程（小白跳过）
+jupyter notebook notebook/datahub_setup.ipynb
+
+# 质量检测（也可在 notebook 步骤 2 中跑）
 uv run python scripts/run_great_expectations.py
 
 # 入湖 Delta Lake
@@ -430,7 +434,7 @@ uv run python scripts/ingest_to_deltalake.py --layer ods
 uv run python scripts/ingest_to_deltalake.py --layer dwd
 uv run python scripts/build_dwa_models.py --layer dwa
 
-# 血缘录入
+# 血缘录入（通过 GMS upstreamLineage aspect）
 uv run python scripts/emit_lineage.py
 
 # 验证资产

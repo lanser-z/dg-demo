@@ -2,7 +2,7 @@
 
 Single source of truth for the 12 datasets, their Chinese names, owners,
 and security classification. Imported by both the teaching notebook
-(step1.ipynb) and the screenshot script.
+(module1.ipynb) and the screenshot script.
 """
 from __future__ import annotations
 

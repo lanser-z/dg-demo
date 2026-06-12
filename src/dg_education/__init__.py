@@ -7,7 +7,7 @@ Public API:
   - plot_storage_distribution / plot_quality_scorecard / plot_security_levels / plot_business_impact
   - estimate_annual_cost / format_business_impact_line / COST_TABLE
 
-The notebook step1.ipynb imports from this module instead of defining
+The notebook module1.ipynb imports from this module instead of defining
 inline functions, so 小白 can focus on concepts and visualizations
 rather than the mechanics of data analysis.
 """
