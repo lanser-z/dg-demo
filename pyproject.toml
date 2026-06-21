@@ -30,6 +30,7 @@ dependencies = [
     "acryl-datahub>=0.12",
     "mysql-connector-python>=9.7.0",
     "playwright>=1.60.0",
+    "networkx>=3.4.2",
 ]
 
 [tool.setuptools.packages.find]
