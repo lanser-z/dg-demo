@@ -9,6 +9,8 @@ Public API:
   - run_ge_scan (模块二)
   - analyze_vbap_invalid_links / analyze_pi_missing_tags / analyze_pi_anomalies / analyze_lims_ad_outliers (模块二)
   - plot_root_cause_distribution / plot_alert_heatmap / plot_system_alert_summary (模块二)
+  - load_lineage_graph / upstream / downstream / blast_radius / render_ascii (模块三)
+  - plot_lineage_graph / plot_blast_radius (模块三)
 
 The notebook module1.ipynb imports from this module instead of defining
 inline functions, so 小白 can focus on concepts and visualizations
@@ -22,6 +24,24 @@ from .business_impact import (
 )
 from .catalog import SYSTEM_INFO, all_datasets, build_asset_catalog
 from .ge_scan import run_ge_scan
+from .lineage import (
+    ancestors,
+    blast_radius,
+    downstream,
+    edge_list,
+    load_lineage_graph,
+    render_ascii,
+    upstream,
+)
+from .lineage import (
+    ancestors,
+    blast_radius,
+    downstream,
+    edge_list,
+    load_lineage_graph,
+    render_ascii,
+    upstream,
+)
 from .quality import (
     DIMENSION_WEIGHTS,
     analyze_lims_ad_outliers,
@@ -37,7 +57,9 @@ from .quality import (
 from .visualization import (
     SYSTEM_COLORS,
     plot_alert_heatmap,
+    plot_blast_radius,
     plot_business_impact,
+    plot_lineage_graph,
     plot_quality_scorecard,
     plot_root_cause_distribution,
     plot_security_levels,
@@ -69,6 +91,14 @@ __all__ = [
     "analyze_vbap_invalid_links",
     # GE scan (模块二)
     "run_ge_scan",
+    # lineage (模块三)
+    "ancestors",
+    "blast_radius",
+    "downstream",
+    "edge_list",
+    "load_lineage_graph",
+    "render_ascii",
+    "upstream",
     # visualization
     "SYSTEM_COLORS",
     "plot_business_impact",
@@ -79,4 +109,7 @@ __all__ = [
     "plot_alert_heatmap",
     "plot_root_cause_distribution",
     "plot_system_alert_summary",
+    # lineage viz (模块三)
+    "plot_blast_radius",
+    "plot_lineage_graph",
 ]

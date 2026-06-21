@@ -1,48 +1,65 @@
 # Lineage Recipe Configuration
 # Defines upstream lineage relationships for DataHub/GMS ingestion
+#
+# 写入方式（scripts/emit_lineage.py）：用 DatahubRestEmitter + MCP + UpstreamLineageClass，
+# 经 POST /aspects?action=ingestProposal 写入 GMS。
+#
+# 血缘分两类（DataHub Upstream.type 统一为 TRANSFORMED，语义区分靠 description）：
+#   - 业务血缘（business_lineage）：跨系统按业务语义关联（非字面 JOIN）
+#   - 加工血缘（processing_lineage）：ODS→DWD / DWD→DWA 的 ETL 派生
+#
+# 共 8 条有 upstream 的边（另有源头节点 upstream=null 不计入边）。
 
 gms:
   url: "http://localhost:28080"
   auth: "datahub:datahub"
 
-neo4j:
-  uri: "bolt://localhost:7687"
-  auth: "neo4j:datahub"
-
 # Lineage relationships
-# format: downstream → upstream (downstream depends on upstream)
+# format: downstream ← upstream (downstream 依赖 upstream)
 lineage_relationships:
-  # lims.samples depends on sap_erp.vbak and sap_erp.vbap via KUNNR join
+  # ── 源头节点（upstream=null，仅声明存在，不产生血缘边） ──
   - downstream:
       platform: sap_erp
       table: vbak
     upstream: null
-    description: "SAP Sales Orders header - source for lims samples"
+    description: "SAP 销售订单抬头 — 源头表"
 
   - downstream:
       platform: sap_erp
       table: vbap
     upstream: null
-    description: "SAP Sales Orders items - source for lims samples"
+    description: "SAP 销售订单行项目 — 源头表"
 
+  - downstream:
+      platform: pi_system
+      table: tags
+    upstream: null
+    description: "PI System 时序标签 — 源头表"
+
+  # ── 业务血缘（跨系统，声明式关系，非可执行 JOIN） ──
+  # 注意：lims.samples 无 KUNNR 列，sap_erp.vbak 无 MINE_CODE 列，两表无字面共享列。
+  # 此边表达「客户订购的煤，其质量曾在某矿井化验」的业务语义，
+  # 真实跨系统关联键（矿井 MINE_CODE）不在 vbak，属 Phase 2 / 模块七主数据标准化范围。
   - downstream:
       platform: lims
       table: samples
     upstream:
       - platform: sap_erp
         table: vbak
-        join_key: KUNNR
       - platform: sap_erp
         table: vbap
-        join_key: KUNNR
-    description: "LIMS samples derived from SAP ERP via KUNNR"
+    type: business_lineage
+    description: "声明式业务关系：销售订单(vbak/vbap)对应的煤其质量由 LIMS 样品化验；两表无字面共享列，非可执行 JOIN（数据孤岛）"
 
-  # pi_system.tags → dwd_tags (PI system tags cleaned into dwd)
+  # ── 加工血缘（ODS → DWD 清洗） ──
   - downstream:
-      platform: pi_system
-      table: tags
-    upstream: null
-    description: "PI System tags - source"
+      platform: dwd
+      table: vbak
+    upstream:
+      - platform: sap_erp
+        table: vbak
+    type: processing_lineage
+    description: "DWD 清洗后销售订单抬头（去空/去重/规范化）"
 
   - downstream:
       platform: dwd
@@ -50,22 +67,42 @@ lineage_relationships:
     upstream:
       - platform: pi_system
         table: tags
-    description: "Cleaned DWD tags from PI system"
+    type: processing_lineage
+    description: "DWD 清洗后 PI 时序标签"
 
-  # dwd_vbak - cleaned from sap_erp.vbak
-  - downstream:
-      platform: dwd
-      table: vbak
-    upstream:
-      - platform: sap_erp
-        table: vbak
-    description: "Cleaned DWD Sales Order header from SAP ERP"
-
-  # dwd_samples - cleaned from lims.samples
   - downstream:
       platform: dwd
       table: samples
     upstream:
       - platform: lims
         table: samples
-    description: "Cleaned DWD samples from LIMS"
+    type: processing_lineage
+    description: "DWD 清洗后 LIMS 样品"
+
+  # ── 加工血缘（DWD/ODS → DWA 汇总，由 build_dwa_models.py 真实派生） ──
+  - downstream:
+      platform: dwa
+      table: dwa_sales_daily
+    upstream:
+      - platform: dwd
+        table: vbak
+    type: processing_lineage
+    description: "DWA 每日销售汇总宽表（GROUP BY ERDAT，COUNT/SUM，来自 dwd_vbak）"
+
+  - downstream:
+      platform: dwa
+      table: dwa_tag_alarm
+    upstream:
+      - platform: pi_system
+        table: tags
+    type: processing_lineage
+    description: "DWA 传感器告警汇总宽表（按标签聚合告警次数，来自 pi_system.tags）"
+
+  - downstream:
+      platform: dwa
+      table: dwa_coal_quality
+    upstream:
+      - platform: lims
+        table: samples
+    type: processing_lineage
+    description: "DWA 月度煤质汇总宽表（按矿井/煤种/月聚合灰分热值，来自 lims.samples）"

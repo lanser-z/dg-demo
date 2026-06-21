@@ -421,3 +421,120 @@ def plot_system_alert_summary(
     if save_to:
         fig.savefig(save_to, bbox_inches="tight")
     return fig
+
+
+# ── 模块三：血缘可视化 ────────────────────────────────────────────────
+
+# 按 platform 分层着色（与 lineage.render_ascii 的分层一致）
+_LAYER_COLORS: dict[str, str] = {
+    "sap_erp": "#2196F3",
+    "pi_system": "#FF5722",
+    "lims": "#4CAF50",
+    "oa": "#FF9800",
+    "scada": "#9C27B0",
+    "dwd": "#607D8B",
+    "dwa": "#795548",
+}
+
+
+def plot_lineage_graph(graph, save_to: str | Path | None = None) -> plt.Figure:
+    """绘制分层血缘图（networkx + matplotlib）。
+
+    节点按 platform 分层垂直排列（源层在上，DWA 层在下），边为数据流向。
+    数据来自 dg_education.lineage.load_lineage_graph()。
+
+    Args:
+        graph: networkx.DiGraph，来自 load_lineage_graph()
+        save_to: 可选 PNG 保存路径
+    """
+    _ensure_chinese_font()
+    import networkx as nx
+
+    _layer_order = ["sap_erp", "pi_system", "lims", "oa", "scada", "dwd", "dwa"]
+
+    def layer_of(n: str) -> int:
+        p = n.split(".", 1)[0]
+        return _layer_order.index(p) if p in _layer_order else len(_layer_order)
+
+    # 分层定位：y = -层号（层号越大越靠下）；同层节点水平均布
+    by_layer: dict[int, list[str]] = {}
+    for n in graph.nodes:
+        by_layer.setdefault(layer_of(n), []).append(n)
+
+    pos: dict[str, tuple[float, float]] = {}
+    for layer, nodes in by_layer.items():
+        nodes_sorted = sorted(nodes)
+        n_count = len(nodes_sorted)
+        for i, node in enumerate(nodes_sorted):
+            x = (i - (n_count - 1) / 2)  # 居中均布
+            pos[node] = (x, -layer)
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    node_colors = [_LAYER_COLORS.get(n.split(".", 1)[0], "#9E9E9E") for n in graph.nodes]
+    nx.draw_networkx_nodes(graph, pos, ax=ax, node_color=node_colors,
+                           node_size=2200, alpha=0.9, edgecolors="white", linewidths=2)
+    nx.draw_networkx_edges(graph, pos, ax=ax, edge_color="#666666",
+                           arrows=True, arrowsize=22, arrowstyle="-|>",
+                           connectionstyle="arc3,rad=0.08", width=1.8, alpha=0.7)
+    nx.draw_networkx_labels(graph, pos, ax=ax, font_size=9, font_weight="bold")
+
+    # 层标注
+    for layer, nodes in by_layer.items():
+        platform = sorted(nodes)[0].split(".", 1)[0]
+        ax.text(-0.02, -layer, f"【{platform}】", transform=ax.get_yaxis_transform(),
+                ha="right", va="center", fontsize=11, fontweight="bold", color="#333333")
+
+    ax.set_title(f"数据血缘图（{graph.number_of_nodes()} 节点 / {graph.number_of_edges()} 条边）\n上游 → 下游，数据流向自上而下",
+                 fontsize=14, fontweight="bold")
+    ax.axis("off")
+    plt.tight_layout()
+    if save_to:
+        fig.savefig(save_to, bbox_inches="tight")
+    return fig
+
+
+def plot_blast_radius(graph, node: str, save_to: str | Path | None = None) -> plt.Figure:
+    """绘制某节点的下游影响面（blast-radius）条形图。
+
+    横轴：下游节点名；纵轴：距离源节点的跳数（1=直接下游，2=间接…）。
+    业务含义：node 数据出问题，影响哪些下游表、影响多远。
+
+    Args:
+        graph: networkx.DiGraph，来自 load_lineage_graph()
+        node: 起始节点（platform.table）
+        save_to: 可选 PNG 保存路径
+    """
+    _ensure_chinese_font()
+    import networkx as nx
+
+    if node not in graph:
+        raise ValueError(f"节点 {node} 不在血缘图中")
+
+    descendants = nx.descendants(graph, node)
+    hops = [(d, nx.shortest_path_length(graph, node, d)) for d in descendants]
+    hops.sort(key=lambda x: (x[1], x[0]))
+
+    labels = [d for d, _ in hops]
+    values = [h for _, h in hops]
+    colors = ["#F44336" if h == 1 else "#FF9800" if h == 2 else "#FFC107" for h in values]
+
+    fig, ax = plt.subplots(figsize=(11, max(4, 0.6 * len(labels) + 2)))
+    bars = ax.barh(labels, values, color=colors, alpha=0.85, edgecolor="white", linewidth=2)
+    ax.set_xlabel("距离源节点的跳数（1=直接影响）", fontsize=12)
+    ax.set_title(f"影响面（blast-radius）：{node} 数据异常波及的下游",
+                 fontsize=14, fontweight="bold")
+    ax.invert_yaxis()
+    ax.set_xticks(range(1, (max(values) if values else 1) + 1))
+    for bar, v in zip(bars, values):
+        ax.text(v + 0.05, bar.get_y() + bar.get_height() / 2,
+                f"{v} 跳", va="center", fontsize=10, fontweight="bold")
+
+    ax.text(0.99, 0.02, f"共影响 {len(labels)} 个下游节点",
+            transform=ax.transAxes, ha="right", va="bottom",
+            fontsize=10, color="#555555",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#F5F5F5", alpha=0.8))
+    plt.tight_layout()
+    if save_to:
+        fig.savefig(save_to, bbox_inches="tight")
+    return fig

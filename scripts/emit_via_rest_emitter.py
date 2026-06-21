@@ -22,6 +22,10 @@ ASSETS = [
     {"platform": "oa",        "table": "contract", "description": "OA合同记录 — 包含合同编号/甲方/乙方/金额/签订日期"},
     {"platform": "oa",        "table": "meeting",  "description": "OA会议记录 — 包含会议主题/参会人/会议纪要"},
     {"platform": "scada",     "table": "equipment_status","description": "SCADA设备状态 — 皮带机/排水泵/提升机的实时开关机状态"},
+    # ── DWA 汇总宽表（由 build_dwa_models.py 派生，注册为 dataset 以承接血缘下游节点） ──
+    {"platform": "dwa",       "table": "dwa_sales_daily",  "description": "DWA每日销售汇总宽表 — 按日聚合订单数/客户数/销售额，来自 dwd_vbak"},
+    {"platform": "dwa",       "table": "dwa_tag_alarm",    "description": "DWA传感器告警汇总宽表 — 按标签聚合告警次数/占比，来自 pi_system.tags"},
+    {"platform": "dwa",       "table": "dwa_coal_quality", "description": "DWA月度煤质汇总宽表 — 按矿井/煤种/月聚合灰分/热值，来自 lims.samples"},
 ]
 
 emitter = DatahubRestEmitter(gms_server=GMS_HOST, timeout_sec=30)
