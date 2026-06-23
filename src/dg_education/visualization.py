@@ -538,3 +538,106 @@ def plot_blast_radius(graph, node: str, save_to: str | Path | None = None) -> pl
     if save_to:
         fig.savefig(save_to, bbox_inches="tight")
     return fig
+
+
+# ── 模块四：清洗可视化 ────────────────────────────────────────────────
+
+
+def plot_cleaning_stats(stats: dict, save_to: str | Path | None = None) -> plt.Figure:
+    """绘制清洗剔除统计柱状图。
+
+    Args:
+        stats: cleaning.cleaning_stats() 返回的 dict，含各表 before/after/dropped
+        save_to: 可选 PNG 保存路径
+    """
+    _ensure_chinese_font()
+    tables = stats.get("by_table", [])
+    if not tables:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "无清洗统计数据", ha="center", va="center", fontsize=14)
+        ax.axis("off")
+        return fig
+
+    names = [t["table"] for t in tables]
+    dropped = [t["dropped"] for t in tables]
+    pcts = [t["dropped_pct"] for t in tables]
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    bars = ax.bar(names, dropped, color="#FF5722", alpha=0.85, edgecolor="white", linewidth=2)
+    ax.set_ylabel("剔除行数", fontsize=12)
+    ax.set_title("各表清洗剔除行数（基础清洗：去空/去重/规范化）", fontsize=14, fontweight="bold")
+    ax.tick_params(axis="x", rotation=20)
+    for bar, p in zip(bars, pcts):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{p:.1f}%", ha="center", va="bottom", fontsize=10, fontweight="bold")
+    plt.tight_layout()
+    if save_to:
+        fig.savefig(save_to, bbox_inches="tight")
+    return fig
+
+
+def plot_quality_before_after(before: dict, after: dict, save_to: str | Path | None = None) -> plt.Figure:
+    """绘制清洗前后质量评分对比（双柱状）。
+
+    Args:
+        before: 清洗前各系统评分 {system: score}
+        after: 清洗后各系统评分 {system: score}
+        save_to: 可选 PNG 保存路径
+    """
+    _ensure_chinese_font()
+    systems = sorted(set(before) | set(after))
+    before_vals = [before.get(s, 0) for s in systems]
+    after_vals = [after.get(s, 0) for s in systems]
+
+    import numpy as np
+    x = np.arange(len(systems))
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(11, 5))
+    ax.bar(x - width / 2, before_vals, width, label="清洗前(ODS)", color="#FF9800", alpha=0.85, edgecolor="white")
+    ax.bar(x + width / 2, after_vals, width, label="清洗后(DWD)", color="#4CAF50", alpha=0.85, edgecolor="white")
+    ax.set_xticks(x)
+    ax.set_xticklabels(systems, fontsize=11)
+    ax.set_ylabel("质量评分", fontsize=12)
+    ax.set_ylim(0, 105)
+    ax.set_title("清洗前后质量评分对比（C/D → B/A）", fontsize=14, fontweight="bold")
+    ax.axhline(y=70, color="orange", linestyle="--", alpha=0.5, label="及格线(70)")
+    ax.axhline(y=85, color="green", linestyle="--", alpha=0.5, label="良好线(85)")
+    ax.legend(fontsize=9, loc="lower right")
+    for i, (b, a) in enumerate(zip(before_vals, after_vals)):
+        ax.text(i - width / 2, b + 1, f"{b:.0f}", ha="center", fontsize=9, fontweight="bold")
+        ax.text(i + width / 2, a + 1, f"{a:.0f}", ha="center", fontsize=9, fontweight="bold", color="#2E7D32")
+    plt.tight_layout()
+    if save_to:
+        fig.savefig(save_to, bbox_inches="tight")
+    return fig
+
+
+def plot_pi_repair_before_after(df_before, df_after, tag: str | None = None,
+                                save_to: str | Path | None = None) -> plt.Figure:
+    """绘制 PI 异常值插值修复前后曲线对比。
+
+    Args:
+        df_before: 修复前 PI DataFrame（含 tag/timestamp/value）
+        df_after: 修复后 PI DataFrame
+        tag: 可选，只画某个 tag；None 则取第一个 tag
+        save_to: 可选 PNG 保存路径
+    """
+    _ensure_chinese_font()
+    if tag is None:
+        tag = df_before["tag"].iloc[0]
+    b = df_before[df_before["tag"] == tag].sort_values("timestamp").head(200)
+    a = df_after[df_after["tag"] == tag].sort_values("timestamp").head(200)
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(range(len(b)), b["value"].values, color="#F44336", alpha=0.7,
+            linewidth=1, label="修复前（含异常突升）")
+    ax.plot(range(len(a)), a["value"].values, color="#2196F3", alpha=0.9,
+            linewidth=1.5, label="修复后（线性插值）")
+    ax.set_xlabel("时间序列（前 200 点）", fontsize=12)
+    ax.set_ylabel("value", fontsize=12)
+    ax.set_title(f"PI 异常值插值修复前后对比 — {tag}", fontsize=14, fontweight="bold")
+    ax.legend(fontsize=10)
+    plt.tight_layout()
+    if save_to:
+        fig.savefig(save_to, bbox_inches="tight")
+    return fig

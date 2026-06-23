@@ -11,12 +11,18 @@ import argparse
 import glob
 import os
 import re
+import sys
 import time
+from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
 from deltalake.writer import write_deltalake
 from deltalake import DeltaTable
+
+# 基础清洗逻辑委托给 dg_education.cleaning（单一真相源，notebook 与 CLI 共享）
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from dg_education.cleaning import clean_basic  # noqa: E402
 
 # 本地 Lakehouse 根目录（Delta Lake 原生支持本地文件系统）
 LAKEHOUSE_ROOT = "/home/szs/Playground/dg-demo/data/lakehouse"
@@ -81,7 +87,7 @@ DWD_TABLES = {
     },
     "oa/dwd_doc_flow": {
         "source": "oa/doc_flow",
-        "description": "OA流：过滤 DOC_TYPE/CREATE_DATE 为空",
+        "description": "OA流：过滤 FLOW_TYPE/APPLY_DATE 为空",
     },
 }
 
@@ -146,29 +152,8 @@ def delta_stats(table_key: str):
 
 
 def _clean(source: str, df: pd.DataFrame) -> pd.DataFrame:
-    """应用 DWD 清洗规则"""
-    df = df.copy()
-    if source == "sap_erp/vbak":
-        df = df.dropna(subset=["NETWR", "ERNAM", "VBELN"])
-        df = df.drop_duplicates(subset=["VBELN"], keep="first")
-        df["NETWR"] = df["NETWR"].astype(float).round(2)
-    elif source == "sap_erp/vbap":
-        df = df.dropna(subset=["MATNR", "VBELN"])
-        df = df[df["NETWR"] > 0]
-        df = df.drop_duplicates(subset=["VBELN", "POSNR"], keep="first")
-    elif source == "sap_erp/kna1":
-        df = df.dropna(subset=["NAME1", "STCD1", "KUNNR"])
-        df["KUNNR"] = df["KUNNR"].astype(str).str.zfill(10)
-    elif source == "pi_system/tags":
-        df = df.dropna(subset=["tag", "value"])
-        df = df[df["status"] != -1]
-        df = df[(df["value"] >= 0) & (df["value"] <= 10000)]
-    elif source == "lims/samples":
-        df = df.dropna(subset=["SAMPLE_ID", "AD"])
-        df = df[df["AD"] >= 0]
-    elif source == "oa/doc_flow":
-        df = df.dropna(subset=["FLOW_TYPE", "APPLY_DATE"])
-    return df
+    """应用 DWD 清洗规则（委托 dg_education.cleaning.clean_basic，单一真相源）。"""
+    return clean_basic(source, df)
 
 
 # ============================================================
