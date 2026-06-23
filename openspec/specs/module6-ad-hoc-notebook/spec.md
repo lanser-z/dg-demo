@@ -9,9 +9,7 @@
 TBD
 
 ---
-
 ## Requirements
-
 ### Requirement: Notebook 结构
 module6-ad-hoc-notebook SHALL contain the following sections in order:
 
@@ -74,3 +72,4 @@ The notebook SHALL use `duckdb.connect()` from DuckDB Python API for in-notebook
 - **WHEN** notebook is executed from top to bottom
 - **THEN** all code cells use `duckdb.connect()` for queries
 - **AND** no external OLAP server is required
+

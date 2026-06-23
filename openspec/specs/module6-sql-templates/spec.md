@@ -9,9 +9,7 @@
 TBD
 
 ---
-
 ## Requirements
-
 ### Requirement: SQL 模板文件位置
 module6-sql-templates SHALL be provided in `docs/Module6.md`，not in source code.
 
@@ -97,3 +95,4 @@ All SQL templates SHALL be directly executable in DuckDB CLI or Python API witho
 - **WHEN** business user copies any SQL template and runs in DuckDB
 - **THEN** the query executes without syntax error
 - **AND** results are returned
+

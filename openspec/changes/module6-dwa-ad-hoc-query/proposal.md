@@ -16,13 +16,13 @@
 
 ### New Capabilities
 
-- `module6-ad-hoc-notebook`：教学 notebook，验证 3 张 DWA 宽表能用 DuckDB 即席查询出数，覆盖销售趋势 / 告警排名 / 月度煤质 / 产销对比 4 个场景。
-- `module6-sql-templates`：SQL 模板，在文档中提供 4 个场景的可执行查询示例，供业务人员参考。
-- `module6-documentation`：模块六实施文档，包含执行流程、故障排查、快速命令汇总。
+（无）
 
 ### Modified Capabilities
 
-- `module5-teaching-notebook`：修改场景验证内容，补充产销对比诚实声明（跨系统需 Phase 2）。
+- `module6-ad-hoc-notebook`：教学 notebook，验证 3 张 DWA 宽表能用 DuckDB 即席查询出数，覆盖销售趋势 / 告警排名 / 月度煤质 / 产销对比 4 个场景。
+- `module6-sql-templates`：SQL 模板，在文档中提供 4 个场景的可执行查询示例，供业务人员参考。
+- `module6-documentation`：模块六实施文档，包含执行流程、故障排查、快速命令汇总。
 
 ## Impact
 
