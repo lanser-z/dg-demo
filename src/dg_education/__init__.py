@@ -23,16 +23,16 @@ from .business_impact import (
     format_business_impact_line,
 )
 from .catalog import SYSTEM_INFO, all_datasets, build_asset_catalog
-from .ge_scan import run_ge_scan
-from .lineage import (
-    ancestors,
-    blast_radius,
-    downstream,
-    edge_list,
-    load_lineage_graph,
-    render_ascii,
-    upstream,
+from .cleaning import (
+    clean_and_write_dwd,
+    clean_basic,
+    cleaning_stats,
+    mark_vbap_valid_link,
+    repair_lims_ad,
+    repair_pi_anomalies,
+    show_delta_history,
 )
+from .ge_scan import run_ge_scan
 from .lineage import (
     ancestors,
     blast_radius,
@@ -59,7 +59,10 @@ from .visualization import (
     plot_alert_heatmap,
     plot_blast_radius,
     plot_business_impact,
+    plot_cleaning_stats,
     plot_lineage_graph,
+    plot_pi_repair_before_after,
+    plot_quality_before_after,
     plot_quality_scorecard,
     plot_root_cause_distribution,
     plot_security_levels,
@@ -91,6 +94,14 @@ __all__ = [
     "analyze_vbap_invalid_links",
     # GE scan (模块二)
     "run_ge_scan",
+    # cleaning (模块四)
+    "clean_and_write_dwd",
+    "clean_basic",
+    "cleaning_stats",
+    "mark_vbap_valid_link",
+    "repair_lims_ad",
+    "repair_pi_anomalies",
+    "show_delta_history",
     # lineage (模块三)
     "ancestors",
     "blast_radius",
@@ -112,4 +123,8 @@ __all__ = [
     # lineage viz (模块三)
     "plot_blast_radius",
     "plot_lineage_graph",
+    # cleaning viz (模块四)
+    "plot_cleaning_stats",
+    "plot_pi_repair_before_after",
+    "plot_quality_before_after",
 ]
