@@ -18,6 +18,9 @@ from deltalake import DeltaTable
 LAKEHOUSE_ROOT = "/home/szs/Playground/dg-demo/data/lakehouse"
 DATA_ROOT = "/home/szs/Playground/dg-demo/data/historical"
 
+# DWA 聚合 LIMIT 常量（教学用）
+DWA_SALES_LIMIT = 30   # 日销售汇总最大天数
+
 
 def get_duckdb():
     """获取 DuckDB 连接（读写 Parquet + Delta Lake）"""
@@ -42,9 +45,12 @@ def get_duckdb():
 def write_delta(table_key: str, df: pd.DataFrame):
     """写 Delta Lake 表"""
     table_uri = os.path.join(LAKEHOUSE_ROOT, table_key)
-    os.makedirs(os.path.dirname(table_uri), exist_ok=True)
+    os.makedirs(table_uri, exist_ok=True)
     df = df.where(pd.notnull(df), None)
-    write_deltalake(table_uri, df, mode="overwrite")
+    write_deltalake(
+        table_uri, df, mode="overwrite",
+        configuration={"delta.enableChangeDataFeed": "false"}
+    )
 
 
 # ============================================================
@@ -63,7 +69,7 @@ def build_dwa_sales_daily(conn) -> pd.DataFrame:
 
     result = conn.execute("""
         SELECT
-            ERDAT                           AS sale_date,
+            STRFTIME(CAST(ERDAT AS DATE), '%Y-%m-%d') AS sale_date,
             COUNT(*)                        AS order_count,
             COUNT(DISTINCT KUNNR)          AS customer_count,
             ROUND(SUM(NETWR), 2)           AS total_amount,
@@ -72,10 +78,10 @@ def build_dwa_sales_daily(conn) -> pd.DataFrame:
             COUNT(DISTINCT VKORG)          AS sales_org_count
         FROM vbak_parquet
         WHERE ERDAT IS NOT NULL AND ERDAT != '00000000'
-        GROUP BY ERDAT
-        ORDER BY ERDAT
-        LIMIT 30
-    """).df()
+        GROUP BY STRFTIME(CAST(ERDAT AS DATE), '%Y-%m-%d')
+        ORDER BY sale_date
+        LIMIT {DWA_SALES_LIMIT}
+    """.format(DATA=DATA_ROOT, DWA_SALES_LIMIT=DWA_SALES_LIMIT)).df()
 
     print(f"  汇总天数: {len(result)} 天")
     print(f"  示例: {result.head(3).to_string()}")
@@ -265,9 +271,10 @@ def main():
 def _delta_stats(table_key: str):
     table_uri = os.path.join(LAKEHOUSE_ROOT, table_key)
     try:
-        dt = DeltaTable(table_uri)
-        files = list(dt.files())
-        total_size = sum(os.path.getsize(os.path.join(table_uri, f)) for f in files)
+        files = [f for f in os.listdir(table_uri)
+                 if f.endswith('.parquet')]
+        total_size = sum(os.path.getsize(os.path.join(table_uri, f))
+                         for f in files)
         return len(files), total_size / 1024 / 1024
     except Exception:
         return 0, 0
