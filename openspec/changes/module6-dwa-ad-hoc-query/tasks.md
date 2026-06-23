@@ -16,12 +16,12 @@
 
 ## 3. 实现验证
 
-- [ ] 3.1 确认 `build_dwa_models.py --layer dwa` 已跑通，3 张 DWA 表已写入 Delta Lake
-- [ ] 3.2 用 DuckDB CLI 执行 4 个场景的 SQL 模板，确认场景 1~3 出数、场景 4 含诚实声明
-- [ ] 3.3 更新 `docs/Background.md` § 6.6 状态（如需要）
+- [x] 3.1 确认 `build_dwa_models.py --layer dwa` 已跑通，3 张 DWA 表已写入 Delta Lake
+- [x] 3.2 用 DuckDB CLI 执行 4 个场景的 SQL 模板，确认场景 1~3 出数、场景 4 含诚实声明
+- [x] 3.3 更新 `docs/Background.md` § 6.6 状态（如需要）
 
 ## 4. OpenSpec 归档
 
-- [ ] 4.1 将 change archive 提交到 `spec/module5-elt-dwa` 分支
-- [ ] 4.2 同步 delta specs 到 main `openspec/specs/`
+- [x] 4.1 将 change archive 提交到 `spec/module6-dwa-ad-hoc-query` 分支
+- [x] 4.2 同步 delta specs 到 main `openspec/specs/`
 - [ ] 4.3 将 change 归档（`openspec archive`）
