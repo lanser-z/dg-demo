@@ -10,7 +10,7 @@ TBD
 
 ---
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: SQL 模板文件位置
 module6-sql-templates SHALL be provided in `docs/Module6.md`，not in source code.
