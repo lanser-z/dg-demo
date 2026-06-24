@@ -982,6 +982,8 @@ duckdb.connect().execute("""
 - 4 个分析场景里 1、2、3 能现场出数，4（产销对比）需要业务自己写 JOIN
 - 临时查询 5 分钟能出，生产报表需等 Phase 2
 
+**教学 notebook**：[`notebook/module6.ipynb`](notebook/module6.ipynb)
+
 ---
 
 ### 6.7 模块七：主数据编码标准化（演示 10 分钟，归属 Phase 2）
