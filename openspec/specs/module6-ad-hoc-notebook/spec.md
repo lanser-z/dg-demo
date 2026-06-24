@@ -21,7 +21,7 @@ module6-ad-hoc-notebook SHALL contain the following sections in order:
 6. 诚实声明（markdown）：当前为单系统宽表，跨系统产销对比需 Phase 2
 
 #### Scenario: Notebook 结构正确
-- **WHEN** user opens `notebook/module5.ipynb`
+- **WHEN** user opens `notebook/module6.ipynb`
 - **THEN** the notebook contains sections 1 through 6 listed above in order
 
 ### Requirement: Code Cell 行数限制
