@@ -1,0 +1,28 @@
+# delta-lake-ingestion.yaml
+# Phase 2: Delta-Lake 自动发现 ingestion recipe
+# 将 data/lakehouse 下的 Parquet 文件自动注册到 DataHub
+#
+# 使用方式:
+#   uv run datahub ingest -c delta-lake-ingestion.yaml
+#
+# 参考: docs.datahub.com/docs/generated/ingestion/sources/delta-lake
+
+source:
+  type: delta-lake
+  config:
+    # 环境标签
+    env: "PROD"
+    # 平台实例名称，用于隔离不同环境
+    platform_instance: "dg-demo-lakehouse"
+    # Delta Lake 根路径
+    base_path: "/home/szs/Playground/dg-demo/data/lakehouse"
+    # 默认 platform
+    platform: "delta-lake"
+
+sink:
+  type: "datahub-rest"
+  config:
+    # GMS 服务器地址
+    server: "http://localhost:28080"
+    # 可选：认证 token（当 Metadata Service Auth 启用时）
+    # token: "<your-datahub-token>"

@@ -1,0 +1,58 @@
+# datahub-actions.yml
+# Phase 2: Kafka 事件流驱动的 datahub-actions 配置
+# 消费 MetadataChangeLog_Versioned_v1，将变更同步至目标 GMS
+#
+# 使用方式:
+#   datahub actions -c datahub-actions.yml
+#
+# 参考: docs.datahub.com/docs/actions
+
+version: 1
+
+name: "dg-demo-gms-sync-pipeline"
+
+source:
+  type: "kafka"
+  config:
+    connection:
+      bootstrap: "${KAFKA_BOOTSTRAP_SERVER:-localhost:29092}"
+      schema_registry_url: "${SCHEMA_REGISTRY_URL:-http://localhost:28080/schema-registry/api/}"
+    # 消费 MetadataChangeLog_Versioned_v1（非废弃的 MetadataChangeLog_v4）
+    topic_routes:
+      MetadataChangeLog_Versioned_v1: "mcl"
+    # Consumer group id，用于 offset 管理
+    consumer_group_id: "datahub-actions-gms-sync"
+
+# Pipeline filters - 新版 filters 列表语法（非旧版 filter 单数）
+filters:
+  - type: "event_type"
+    config:
+      filter:
+        # 只处理 MetadataChangeLogEvent_v1 事件
+        MetadataChangeLogEvent_v1:
+          event:
+            # 可选：按 entityType 过滤，如只处理 dataset
+            # - entityType: dataset
+
+# Action: metadata_change_sync — 将 MCL 事件同步到目标 GMS
+action:
+  type: "metadata_change_sync"
+  config:
+    # 目标 GMS 服务器地址
+    gms_server: "${GMS_SERVER:-http://localhost:28080}"
+    # 可选：认证 token（当 Metadata Service Auth 启用时）
+    # gms_auth_token: "${GMS_AUTH_TOKEN}"
+    # 排除的敏感 aspects
+    aspects_to_exclude:
+      - "dataHubAccessTokenInfo"
+      - "dataHubSecretValue"
+    # 可选：按 URN 正则过滤，只同步 prod/lakehouse 的 dataset
+    # urn_regex: "urn:li:dataset:(prod|lakehouse).*"
+    # 排除的 entity types
+    entity_type_to_exclude:
+      - "dataFlow"
+
+# datahub section: action 自身连接的 GMS（用于读取配置）
+datahub:
+  server: "${GMS_SERVER:-http://localhost:28080}"
+  # token: "${DATAHUB_TOKEN}"  # 当 Metadata Service Auth 启用时
