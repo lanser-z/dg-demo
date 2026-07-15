@@ -23,7 +23,7 @@
         │                    │                    │
 ┌──────▼──────┐     ┌───────▼──────┐     ┌──────▼──────────┐
 │  资产目录模块  │     │  质量监控模块  │     │   血缘追踪模块   │
-│  DataHub     │     │ Great Expectations│   │  Apache Atlas  │
+│  DataHub     │     │ Great Expectations│   │  DataHub       │
 │  + 自研前端   │     │  + 自研告警引擎 │     │  + 自研可视化  │
 └──────┬──────┘     └───────┬──────┘     └──────┬──────────┘
        │                    │                    │
@@ -137,10 +137,10 @@
 **架构集成方式**：
 
 ```python
-# Great Expectations 与 Spark 批测集成示例
+# 当前实现：scripts/run_great_expectations.py（pandas 引擎）
 import great_expectations as ge
 
-df = ge.dataset.SparkDFDataset(spark_df)
+df = ge.dataset.PandasDataset(pandas_df)
 
 # 定义期望
 df.expect_column_values_to_be_between(
@@ -232,19 +232,19 @@ results = df.validate()
 
 ### 3.7 技术选型汇总
 
-| 模块 | 推荐方案 | 备选方案 |
-|------|---------|---------|
-| 数据湖格式 | Delta Lake | Apache Iceberg |
-| 元数据管理 | DataHub | Apache Atlas |
-| 数据质量 | Great Expectations + 自研告警 | — |
+| 模块 | 推荐方案（生产） | 当前实现（演示） |
+|------|-----------------|------------------|
+| 数据湖格式 | Delta Lake | Delta Lake（Parquet文件） |
+| 元数据管理 | DataHub | DataHub |
+| 数据质量 | Great Expectations + 自研告警 | Great Expectations（pandas引擎） |
 | 消息队列 | Apache Kafka | — |
-| 时序存储 | TimescaleDB | InfluxDB |
-| 批处理 | Apache Spark | — |
-| 流处理 | Apache Flink | Spark Structured Streaming |
-| 对象存储 | MinIO（兼容S3） | HDFS |
-| 调度 | Apache DolphinScheduler | Airflow |
-| 可视化 | Grafana + Superset | Metabase |
-| 配置管理 | Apollo / Nacos | — |
+| 时序存储 | TimescaleDB | — |
+| 批处理 | Apache Spark | Python + pandas |
+| 流处理 | Apache Flink | — |
+| OLAP引擎 | Apache Doris | DuckDB |
+| 对象存储 | MinIO（兼容S3） | 本地文件系统 |
+| 调度 | Apache DolphinScheduler | 手动执行脚本 |
+| 可视化 | Grafana + Superset | Jupyter Notebook |
 
 ---
 
@@ -258,7 +258,9 @@ results = df.validate()
                   └────> Debezium ──> Kafka Connect ──> Delta Lake (ODS)
 ```
 
-**CDC方案（SAP-ERP / Oracle）**：
+**当前实现**：历史数据以 Parquet 文件存储在 `data/historical/`（5 系统各一份），增量数据通过 `scripts/generate_incremental.py` 生成。生产部署时 CDC 链路替代文件落地步骤。
+
+**生产 CDC 方案（SAP-ERP / Oracle）**：
 
 | 源端 | CDC工具 | 说明 |
 |------|--------|------|
@@ -283,16 +285,32 @@ results = df.validate()
 # ODS表命名规范
 ods_{sys_code}_{table_name}
 
-# ODS公共审计字段
-class ODSMixin:
-    etl_time: datetime       # ETL执行时间
-    source_system: str        # 源系统标识
-    source_pk: str            # 源端主键（复合主键用_拼接）
-    is_deleted: str           # Y=已删除 N=有效
-    dbtime: datetime          # 源系统时间（业务时间）
+# 当前实现：scripts/ingest_to_deltalake.py --layer ods
+# Python + pandas 读取 Parquet 原始文件写入 Delta Lake
+import pandas as pd
+from deltalake.writer import write_deltalake
+
+df = pd.read_parquet(f"data/historical/{sys_code}/{table}.parquet")
+# 追加审计字段
+df["etl_time"] = pd.Timestamp.now()
+df["source_system"] = sys_code
+write_deltalake(f"data/lakehouse/ods/{table}", df, mode="append")
+
+# 生产路径：Debezium CDC → Kafka → Delta Lake
 ```
 
-**PI-System ODS设计**：
+**当前实现**：Python + pandas 委托 `dg_education/cleaning.py` 执行清洗规则，无需 Spark 集群。
+
+```python
+# scripts/ingest_to_deltalake.py --layer dwd
+from dg_education.cleaning import clean_basic
+
+df_raw = pd.read_parquet(f"data/historical/{sys_code}/{table}.parquet")
+df_clean = clean_basic(source=sys_code, df=df_raw)
+write_deltalake(f"data/lakehouse/dwd/{table}", df_clean, mode="overwrite")
+```
+
+**生产 PI-System ODS 设计**：
 
 ```sql
 CREATE TABLE ods_pi_tags (
@@ -325,29 +343,19 @@ CREATE TABLE ods_pi_tags (
 **DWD关键处理**：
 
 ```python
-# 矿井编码标准化映射
-MINE_MAPPING = {
-    "M001": {"name": "鄂尔多斯一号煤矿", "erp_code": "1001", "pi_code": "M001"},
-    "M002": {"name": "榆林李家沟煤矿", "erp_code": "1002", "pi_code": "M002"},
-    ...
-}
+# 当前实现：Python pandas 委托清洗层
+from dg_education.cleaning import clean_basic, clean_vbak, clean_vbap
 
-# DWD清洗示例：VBAP关联KNA1，补全客户标准名称
-def dwd_sales_order():
-    vbak = spark.read.delta(".../ods_sap_vbak")
-    kna1 = spark.read.delta(".../ods_sap_kna1")
+# 清洗规则单一入口
+df_clean = clean_basic(source="sap_erp", df=df_raw)
+# 或按表选择专项清洗
+df_vbak = clean_vbak(df_raw_vbak)  # 去空行/重复行
+df_vbap = clean_vbap(df_raw_vbap)  # 过滤 MATNR 为空、NETWR≤0
 
-    df = vbak.join(
-        kna1.withColumnRenamed("NAME1", "CUSTOMER_NAME_STANDARD"),
-        on="KUNNR",
-        how="left"
-    )
-
-    # 标记未匹配客户（数据质量问题）
-    df = df.withColumn("IS_CUSTOMER_MATCHED",
-                       F.when(F.col("CUSTOMER_NAME_STANDARD").isNotNull(), "Y").otherwise("N"))
-
-    return df
+# 生产 Spark 方案（未来升级）
+# vbak = spark.read.delta(".../ods_sap_vbak")
+# kna1 = spark.read.delta(".../ods_sap_kna1")
+# df = vbak.join(kna1, on="KUNNR", how="left")
 ```
 
 ### 4.4 汇总层（DWM）
@@ -387,149 +395,76 @@ def dwd_sales_order():
 | 数据湖场景 | 源数据量大但转换简单 | 复杂业务逻辑，转换在数仓内完成 |
 | 本案适用性 | 轻量级清洗（CDC前置） | 主题宽表构建（主要场景） |
 
-**本案 ELT 定位**：以 Delta Lake 为承载，Spark 作为执行引擎，dbt 作为转换编排层（dbt-core 支持 Spark 适配器），实现从 ODS → DWD → DWM 的分层加工。
+**本案 ELT 定位**：以 Delta Lake 为承载，Python + DuckDB 作为执行引擎（演示环境），Spark 作为生产执行引擎（未来升级），实现从 ODS → DWD → DWA 的分层加工。
 
 ### 5.2 ELT 分层模型
 
 ```
-ODS（贴源层）  ──[清洗/去重]──▶  DWD（主题层）  ──[聚合/指标]──▶  DWM（汇总层）
+ODS（贴源层）  ──[清洗/去重]──▶  DWD（主题层）  ──[聚合/指标]──▶  DWA（应用层）
   │                          │                              │
-  │ 保持原始结构              │ 统一编码体系                  │ 预计算事实表
-  │ CDC审计字段               │ 主数据关联                   │ 维度退化
-  │ 无业务逻辑                │ 业务实体建模                 │ 公共指标复用
+  │ 保持原始结构              │ 统一编码体系                  │ 面向业务场景
+  │ CDC审计字段               │ 主数据关联                   │ SQL 直接可查
+  │ 无业务逻辑                │ 业务实体建模                 │ 预计算指标
 ```
 
 ### 5.3 核心 ELT 作业设计
 
-**作业一：矿井生产日榜（ODS_PI → DWD_PRODUCTION）**
+**当前实现**：Python + DuckDB，直接读取 Parquet/Delta Lake 文件进行 OLAP 聚合，无需 Spark 集群。
+
+```python
+# scripts/build_dwa_models.py — DuckDB 内存 OLAP
+import duckdb
+conn = duckdb.connect()
+
+# DWA 宽表构建：DuckDB 直接查 Parquet 文件
+conn.execute("""
+    CREATE VIEW vbak AS
+    SELECT * FROM read_parquet('data/historical/sap_erp/vbak_year=2022.parquet')
+")
+result = conn.execute("""
+    SELECT sale_date, COUNT(*) AS order_count, SUM(NETWR) AS total_amount
+    FROM vbak GROUP BY sale_date
+""").df()
+```
+
+**生产方案（Apache Spark + Delta Lake）**：
 
 ```sql
--- dbt model: dwd_production_daily.sql
-{{ config(materialized='table', partition_by=['production_date']) }}
-
-WITH source AS (
-    SELECT
-        tag,
-        timestamp::DATE                             AS production_date,
-        mine_code,
-        face_code,
-        AVG(value)                                 AS avg_wagas,
-        MAX(value)                                 AS max_wagas,
-        COUNTIF(status = 0)                        AS valid_points,
-        COUNT(*)                                   AS total_points,
-        -- PI系统每5分钟1440点，折算为每日开机时长
-        COUNTIF(status = 0) * 5 / 60              AS running_hours
-    FROM {{ source('ods_pi', 'tags') }}
-    WHERE tag LIKE '%_WAGAS'
-      AND timestamp >= '2022-01-01'
-    GROUP BY tag, timestamp::DATE, mine_code, face_code
-)
-
+-- Spark SQL: 矿井生产日榜
 SELECT
     production_date,
     mine_code,
-    SUM(valid_points)                             AS daily_valid_points,
-    SUM(valid_points) * 5 / 60                   AS daily_running_hours,
-    MAX(max_wagas)                               AS daily_max_wagas,
-    AVG(avg_wagas)                               AS daily_avg_wagas,
-    -- 开机率（理论日运行时长24h）
-    SUM(valid_points) * 5 / 60 / 24             AS availability_rate,
-    CURRENT_TIMESTAMP()                           AS etl_time
-FROM source
+    SUM(valid_points) * 5 / 60          AS daily_running_hours,
+    MAX(max_wagas)                      AS daily_max_wagas,
+    AVG(avg_wagas)                      AS daily_avg_wagas,
+    SUM(valid_points) * 5 / 60 / 24     AS availability_rate
+FROM delta.`/lake/ods_pi_tags`
+WHERE tag LIKE '%_WAGAS'
 GROUP BY production_date, mine_code
-```
-
-**作业二：产销一体化宽表（DWD层跨系统关联）**
-
-```sql
--- dbt model: dwd_sales_production_wide.sql
-{{ config(materialized='incremental', partition_by=['dt']) }}
-
-WITH production AS (
-    SELECT
-        production_date,
-        mine_code,
-        SUM(daily_valid_points)   AS pi_valid_points,
-        SUM(daily_running_hours)  AS pi_running_hours,
-        MAX(daily_max_wagas)     AS pi_max_wagas
-    FROM {{ ref('dwd_production_daily') }}
-    {% if is_incremental() %}
-    WHERE production_date > (SELECT MAX(production_date) FROM {{ this }})
-    {% endif %}
-    GROUP BY production_date, mine_code
-),
-
-lims AS (
-    SELECT
-        test_date                         AS test_date,
-        mine_code,
-        AVG(AD)                           AS avg_ash_pct,     -- 灰分
-        AVG(QGR_AD)                      AS avg_calorific,    -- 发热量
-        COUNT(*)                          AS sample_count
-    FROM {{ ref('dwd_coal_quality') }}
-    GROUP BY test_date, mine_code
-),
-
-orders AS (
-    SELECT
-        ERDAT                             AS order_date,
-        KUNNR                             AS customer_id,
-        VKORG                             AS sales_org,
-        NETWR                             AS order_amount,
-        AUART                             AS order_type
-    FROM {{ source('ods_sap', 'vbak') }}
-),
-
-SELECT
-    p.production_date                     AS dt,
-    p.mine_code,
-    prod.pi_running_hours,
-    prod.pi_max_wagas,
-    l.avg_ash_pct,
-    l.avg_calorific,
-    COALESCE(SUM(o.order_amount), 0)    AS daily_order_amount,
-    COUNT(DISTINCT o.customer_id)         AS daily_customer_count
-FROM production p
-LEFT JOIN lims l
-    ON p.production_date = l.test_date
-    AND p.mine_code = l.mine_code
-LEFT JOIN orders o
-    ON p.production_date = o.order_date
-GROUP BY p.production_date, p.mine_code,
-         prod.pi_running_hours, prod.pi_max_wagas,
-         l.avg_ash_pct, l.avg_calorific
 ```
 
 ### 5.4 增量 ELT 策略
 
-| 层级 | 增量策略 | 说明 |
-|------|---------|------|
-| ODS | CDC（Debezium）或时间戳比对 | 仅追回增量/变更 |
-| DWD | 快照全量 + 时间戳过滤 | 主键覆盖，保留历史版本 |
-| DWM | 增量物化视图 | 基于 DWD 增量计算当日汇总 |
-| DWA | 按需查询 | 不预计算，实时聚合 |
+| 层级 | 增量策略 | 当前实现 |
+|------|---------|---------|
+| ODS | CDC（Debezium）或时间戳比对 | `scripts/generate_incremental.py` |
+| DWD | 快照全量 + 时间戳过滤 | `scripts/ingest_to_deltalake.py --layer dwd` |
+| DWA | DuckDB 增量聚合 | `scripts/build_dwa_models.py` |
 
 ```python
-# 增量 ELT 调度逻辑
-def elt_daily_run(target_date: str):
-    # Step 1: ODS 增量拉取（仅增量）
-    ods_pi = extract_pi_incremental(target_date)    # 按 timestamp >= T-1 拉取
+# 当前增量调度逻辑（手动执行）
+# 1. 生成增量数据
+uv run python scripts/generate_incremental.py --date 2026-07-14
 
-    # Step 2: DWD 清洗写入（Merge 模式）
-    dwd_prod = transform_production(ods_pi)
-    spark.mergeInto(
-        table="delta.lake/dwd_production_daily",
-        source=dwd_prod,
-        condition="source.tag = target.tag AND source.production_date = target.production_date",
-        set={"value": "source.value", "etl_time": "current_timestamp()"}
-    )
+# 2. 入湖 ODS + DWD
+uv run python scripts/ingest_to_deltalake.py --layer ods --date 2026-07-14
+uv run python scripts/ingest_to_deltalake.py --layer dwd --date 2026-07-14
 
-    # Step 3: DWM 增量汇总（当日数据替换）
-    dwm_prod = aggregate_production_daily(target_date)
-    dwm_prod.write.format("delta").mode("overwrite").partitionBy("production_date")...
+# 3. 构建 DWA 汇总
+uv run python scripts/build_dwa_models.py --layer dwa --date 2026-07-14
 
-    # Step 4: 触发质量检测（ELT任务完成后）
-    trigger_quality_check(f"DWD/dwd_production_daily/{target_date}")
+# 4. 触发质量检测
+uv run python scripts/run_great_expectations.py --system sap_erp
 ```
 
 ### 5.5 回溯处理（Backfill）
@@ -537,49 +472,43 @@ def elt_daily_run(target_date: str):
 当主数据标准变更时，需要对历史数据进行回溯重算：
 
 ```bash
-# 使用 dbt 进行回溯
-dbt run --select dwd_sales_production --vars '{"start_date": "2022-01-01", "end_date": "2023-06-30"}'
+# 当前演示：重新生成历史数据 + 重新入湖
+uv run python scripts/generate_historical.py
+uv run python scripts/ingest_to_deltalake.py --layer ods
+uv run python scripts/ingest_to_deltalake.py --layer dwd
+uv run python scripts/build_dwa_models.py --layer dwa
 
-# 使用 Spark 进行大规模回溯
-spark-submit \
-    --master yarn \
-    --deploy-mode cluster \
-    --conf spark.sql.shuffle.partitions=200 \
-    elt_backfill.py \
-    --layer dwd \
-    --table production_daily \
-    --start-date 2022-01-01 \
-    --end-date 2023-06-30
+# 生产部署：使用 dbt/Spark 进行定点回溯
+# dbt run --select dwd_sales_production --vars '{"start_date": "2022-01-01", "end_date": "2023-06-30"}'
 ```
 
 ---
 
 ## 6. OLAP 多维分析
 
-### 6.1 技术选型：ClickHouse vs Apache Druid vs Doris
+### 6.1 技术选型：DuckDB（演示）vs Doris（生产）
 
-| 维度 | ClickHouse | Apache Druid | Apache Doris |
-|------|-----------|--------------|--------------|
-| **定位** | 列式分析数据库 | 时序OLAP | MPP分析数据库 |
-| **写入模式** | 批量+实时 | 实时流优先 | 批量+实时 |
-| **SQL支持** | 完整（MySQL兼容） | 有限（扩展SQL） | 完整（MySQL兼容） |
-| **Join能力** | 弱（建议宽表） | 弱 | 强 |
-| **物化视图** | 支持（物化视图+预聚合） | 支持（数据立方） | 支持 |
-| **数据量** | 十亿-万亿级 | 十亿级 | 十亿-千亿级 |
-| **生态** | 独立 | 依赖Kafka/HDFS | 独立 |
-| **运维复杂度** | 中 | 高 | 低 |
-| **本案适用性** | ★★★★ | ★★★ | ★★★★★ |
+> **当前实现**：演示环境使用 **DuckDB**（`scripts/build_dwa_models.py`），内存 OLAP 引擎，无需独立部署。生产部署升级为 Apache Doris 或 ClickHouse。
 
-**选型结论：Apache Doris（原百度 DorisDB）**
+| 维度 | ClickHouse | Apache Doris | DuckDB（当前） |
+|------|-----------|--------------|----------------|
+| **定位** | 列式分析数据库 | MPP分析数据库 | in-memory OLAP |
+| **部署** | 独立集群 | FE+BE 集群 | Python 库 |
+| **写入模式** | 批量+实时 | 批量+实时 | 批量读取文件 |
+| **SQL支持** | 完整（MySQL兼容） | 完整（MySQL兼容） | 完整 |
+| **物化视图** | 支持 | 支持 | ❌ |
+| **数据量** | 十亿-万亿级 | 十亿-千亿级 | 亿级以内 |
+| **本案适用性** | ★★★★ | ★★★★★ | ★★★★（演示） |
+
+**选型结论：Apache Doris（生产）**
 
 理由：
-- MySQL 协议兼容，现有 BI 工具（FineBI / Tableau）零改造直连
+- MySQL 协议兼容，现有 BI 工具零改造直连
 - 向量化和列式存储兼顾，单节点即可支撑万级 QPS
-- Rollup 和物化视图支持查询加速，适合大宽表分析场景
-- 部署简单（FE+BE 架构，3节点起步），运维成本低
-- 支持 Spark Load 和 Stream Load，Delta Lake 数据可直接导入
+- Rollup 和物化视图支持查询加速
+- 部署简单（FE+BE 架构），运维成本低
 
-**备选**：若未来分析数据量超过 500 亿行，可切换至 ClickHouse（超大规模列存分析能力更强）。
+**备选**：若未来分析数据量超过 500 亿行，可切换至 ClickHouse。
 
 ### 6.2 OLAP 数据模型
 
@@ -653,38 +582,43 @@ GROUP BY toStartOfMonth(dt), mine_code;
 
 ### 6.4 典型 OLAP 查询场景
 
-**场景一：产销对比（年-月-日钻取）**
+**当前实现**：DuckDB 直接查询 Parquet 文件，SQL 语法兼容 PostgreSQL。
+
+```python
+# scripts/build_dwa_models.py — DuckDB 即席查询
+import duckdb
+conn = duckdb.connect()
+
+# 场景一：产销对比
+result = conn.execute("""
+    SELECT sale_date, COUNT(*) AS order_count, SUM(NETWR) AS total_amount
+    FROM read_parquet('data/historical/sap_erp/vbak_year=2022.parquet')
+    GROUP BY sale_date
+    ORDER BY sale_date
+    LIMIT 30
+""").fetchdf()
+```
+
+**生产场景一：产销对比（Doris SQL）**
 
 ```sql
--- ClickHouse / Doris SQL
 SELECT
-    {% if granularity == 'month' %} toStartOfMonth(dt)
-    {% elif granularity == 'day' %} dt
-    {% else %} 'ALL'
-    {% endif %} AS period,
+    dt,
     mine_code,
     SUM(daily_output_t)       AS output_t,
     SUM(daily_order_amount_cny) / SUM(daily_output_t) AS avg_price_cny_t,
-    -- 产销比（>1说明库存积压）
     SUM(daily_order_t) / NULLIF(SUM(daily_output_t), 0) AS sales_output_ratio
 FROM dwm_fact_sales
-WHERE dt BETWEEN '{{ start_date }}' AND '{{ end_date }}'
-  AND mine_code IN ({{ mine_codes }})
-GROUP BY
-    {% if granularity == 'month' %} toStartOfMonth(dt)
-    {% elif granularity == 'day' %} dt
-    {% else %} 1
-    {% endif %},
-    mine_code
-ORDER BY period DESC, output_t DESC
+WHERE dt BETWEEN '2022-01-01' AND '2022-12-31'
+GROUP BY dt, mine_code
+ORDER BY dt DESC, output_t DESC
 ```
 
-**场景二：煤质与价格相关性分析**
+**生产场景二：煤质与价格相关性分析（Doris SQL）**
 
 ```sql
 SELECT
     coal_type,
-    -- 按灰分区间分组
     CASE
         WHEN avg_ash_pct < 8   THEN '优质（灰分<8%）'
         WHEN avg_ash_pct < 12  THEN '良好（8-12%）'
@@ -700,53 +634,19 @@ GROUP BY coal_type, ash_grade
 ORDER BY coal_type, ash_grade;
 ```
 
-**场景三：安全告警趋势（多维度下钻）**
-
-```sql
-SELECT
-    toStartOfMonth(dt)    AS alarm_month,
-    mine_code,
-    SUM(CASE WHEN max_wagas_pct > 0.8 THEN 1 ELSE 0 END)  AS wagas_alarm_cnt,
-    SUM(CASE WHEN max_wagas_pct > 1.0 THEN 1 ELSE 0 END)  AS wagas_danger_cnt,
-    AVG(max_wagas_pct)   AS avg_peak_wagas,
-    -- 环比上月
-    AVG(max_wagas_pct) /
-        LAG(AVG(max_wagas_pct)) OVER (
-            PARTITION BY mine_code ORDER BY toStartOfMonth(dt)
-        ) - 1                                    AS mom_change_pct
-FROM dwm_fact_sales
-WHERE dt >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
-GROUP BY toStartOfMonth(dt), mine_code
-ORDER BY alarm_month DESC;
-```
-
 ### 6.5 BI 可视化集成
 
+**演示路径**：DuckDB 结果以 Delta Lake 持久化，供 Jupyter Notebook 直接分析。
+
+**生产路径**（Apache Superset + Doris）：
+
 ```yaml
-# Superset 接入配置（通过 Doris MySQL 协议）
 database:
   name: doris_dwm
   engine: mysql+pymysql
   host: doris-fe.internal
   port: 9030
   database: dwm
-  username: readonly
-  password: ***
-
-# 预定义看板（Dashboard）
-dashboards:
-  - name: 产销分析看板
-    charts:
-      - 各矿井日产量趋势（折线图）
-      - 产销比热力图（矿井×月份）
-      - 订单金额分布（饼图）
-      - 客户TOP10排名（条形图）
-
-  - name: 安全监控看板
-    charts:
-      - 瓦斯浓度日峰值曲线（各矿井）
-      - 月度告警次数排名（柱状图）
-      - 高风险矿井标识（GIS热力图）
 ```
 
 ---
@@ -831,19 +731,24 @@ MINE_LINK = {
 | 准确性 | 业务逻辑校验（灰分区间） | 批次/实时 |
 | 唯一性 | 重复行检测 | 批次 |
 
+**当前实现**：`scripts/run_great_expectations.py`，pandas 执行引擎，GE 函数映射。
+
+```bash
+# 运行质量检测
+uv run python scripts/run_great_expectations.py --system sap_erp
+uv run python scripts/run_great_expectations.py --system pi_system
+```
+
 **规则执行流程**：
 
 ```
-质量规则定义（YAML/JSON）
+质量规则定义（scripts/run_great_expectations.py）
         │
         ▼
-规则引擎解析 ───> Spark/Flink 分布式执行
-        │
-        ├──> 结果写入 quality_results 表
-        │
-        ├──> 问题行写入 quality_issues 表（含责任部门）
-        │
-        └──> 触发告警（Slack/微信/邮件）
+pandas 执行引擎（Great Expectations 函数映射）
+        ├──> 控制台输出（pass/fail + 百分比）
+        ├──> JSON 报告（--output-json）
+        └──> 告警（TODO：接入飞书/钉钉/邮件）
 ```
 
 ### 7.4 告警与问题工单
@@ -935,45 +840,40 @@ ABAC_POLICY = {
 
 ### 9.1 基础环境
 
-| 组件 | 规格 | 说明 |
-|------|------|------|
-| Master节点 × 1 | 8C/32G | 调度/管理服务 |
-| Worker节点 × 3 | 16C/64G | 计算/存储 |
-| MinIO 节点 × 3 | 4C/16G | 对象存储（纠删码模式） |
-| Kafka 集群 × 3 | 8C/32G | 消息队列 |
-| TimescaleDB | 8C/64G | 时序存储（PI数据） |
+> **当前演示环境**：单机即可运行。Python + uv + DataHub Docker Compose。
 
-### 9.2 容器化部署
+| 组件 | 演示环境 | 生产环境 |
+|------|---------|---------|
+| Python | 3.10+ + uv | 3.10+ + uv |
+| 数据湖 | 本地文件系统 Parquet | MinIO S3 + Delta Lake |
+| 元数据 | DataHub Docker Compose | DataHub 高可用集群 |
+| OLAP | DuckDB（Python 库） | Apache Doris FE+BE |
+| 调度 | 手动执行脚本 | DolphinScheduler / Airflow |
 
-```yaml
-# docker-compose.yml（DataHub + 元数据服务）
-version: '3.8'
-services:
-  elasticsearch:
-    image: elasticsearch:7.17
-    environment:
-      - discovery.type=single-node
-    mem_limit: 2g
+### 9.2 DataHub 部署
 
-  mysql:
-    image: mysql:8.0
-    environment:
-      - MYSQL_ROOT_PASSWORD=datahub
+**当前实现**：使用 `datahub-quickstart.yml`，一键启动所有 DataHub 相关服务。
 
-  datahub:
-    image: acryldata/datahub-frontend-embedded:latest
-    depends_on:
-      - mysql
-      - elasticsearch
-    ports:
-      - "9002:9002"
+```bash
+# 启动
+cd /home/szs/Playground/dg-demo
+docker compose -f datahub-quickstart.yml up -d
 
-  kafka:
-    image: confluentinc/cp-kafka:7.4
-    environment:
-      - KAFKA_BROKER_ID=1
-      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+# 验证
+curl http://localhost:28080/health
+curl http://localhost:29200/_cat/indices?v
 ```
+
+**各服务端口（当前 Demo 配置）**：
+
+| 服务 | 端口 |
+|------|------|
+| GMS API | 28080 |
+| OpenSearch | 29200 |
+| Neo4j 浏览器 | 27474 |
+| MySQL | 23306 |
+| Kafka | 29092 |
+| 前端 Web UI | 29002 |
 
 ---
 
