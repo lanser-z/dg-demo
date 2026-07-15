@@ -1050,7 +1050,7 @@ duckdb.connect().execute("""
 
 ---
 
-### 6.10 模块十：定时质量监控（演示 10 分钟，归属 Phase 2）
+### 6.10 模块十：定时质量监控（演示 10 分钟，归属 Phase 2）✅ **已上线**
 
 **目标**：从「一次性 GE CLI」升级为「定时任务 + 持久化报告 + Owner 通知」。
 
@@ -1066,6 +1066,30 @@ duckdb.connect().execute("""
 **Phase 2 教学**：Airflow DAG 截图 + 邮件告警示例 + ClickHouse 分数趋势折线图
 
 **验证方式**：执行 DAG 后，邮件收到告警（若分数 < 70）；ClickHouse 中查询历史分数趋势。
+
+**当前实现（demo 阶段）**：
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 调度器 | APScheduler `BlockingScheduler` + `CronTrigger(hour=8, minute=30)` | 0 Docker / 30 秒启动；生产可升级 Airflow `PythonOperator` |
+| 时序存储 | SQLite `data/quality_scores.db` | 1800 行/年，pandas 原生；生产可升级 ClickHouse |
+| 告警 | `data/quality_alerts.json` + `logging.warning` | 0 外部依赖；生产可升级 Email/Slack |
+| 趋势图 | matplotlib 5 系统折线 → `data/quality_trend.png` | 教学直观；可升级 Superset |
+| Checkpoint | 包装 `scripts/run_great_expectations.RULES` + `expect_*` | 不重写规则；演进路径：替换 `_run_pandas()` → 真 GE |
+
+**入口**：
+
+```bash
+# 守护模式（每日 08:30）
+uv run python scripts/quality_scheduler.py
+
+# 单次模式（教学 / CI）
+uv run python scripts/quality_scheduler.py --run-once
+```
+
+**教学 notebook**：`notebook/module10.ipynb` 4 cells（触发 Checkpoint / 查历史 / 渲染趋势图 / 模拟告警）
+
+**演进路径**：见 `openspec/changes/module10-scheduled-quality-monitoring/design.md` 第 6 节（Phase 3 真 Great Expectations + Airflow + ClickHouse）。
 
 ---
 

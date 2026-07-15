@@ -39,6 +39,8 @@ dependencies = [
     "openlineage-python>=1.0",
     "sqlglot>=20.0",
     "polars>=1.42.1",
+    # ── 定时调度（module10, Phase 2 module 6.10） ─────
+    "apscheduler>=3.10",
 ]
 
 [tool.setuptools.packages.find]

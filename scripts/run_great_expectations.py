@@ -2,6 +2,10 @@
 数据质量检测脚本 — GE 风格规则，pandas 执行引擎。
 规则定义与 Great Expectations 规范一致，但执行层轻量化，适合演示。
 
+6.10 升级：本文件的 RULES 字典与 expect_* 函数被
+``src/dg_platform/quality_checkpoint.py`` 引用为 Checkpoint 抽象的
+规则源；本 CLI 仍可独立使用（``--system sap_erp``），不依赖 6.10 任何新模块。
+
 用法：
     uv run python scripts/run_great_expectations.py [--system sap_erp|pi_system|lims|oa|all]
 """

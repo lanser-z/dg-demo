@@ -92,6 +92,7 @@ uv run jupyter lab notebook/        # 启动 Jupyter
 | 8 | `module7.ipynb` | Lakehouse | 矿井/客户/物料维表 |
 | 9 | `module8.ipynb` | DataHub (GMS REST + Kafka) | 生产级元数据接入 |
 | 10 | `module9.ipynb` | DataHub (OpenLineage) | 自动血缘采集（auto + manual 双通道对比） |
+| 11 | `module10.ipynb` | APScheduler + SQLite | 定时质量监控（Checkpoint + 阈值告警 + 趋势图） |
 
 ---
 
@@ -151,6 +152,6 @@ A: 当前 `datahub-quickstart.yml` 用 OpenSearch 兼任图谱后端（`GRAPH_SE
 
 ## 进一步学习
 
-- 模块详细讲解：[docs/Module1.md](docs/Module1.md) ~ [docs/Module8.md](docs/Module8.md)
+- 模块详细讲解：[docs/Module1.md](docs/Module1.md) ~ [docs/Module10.md](docs/Module10.md)
 - 5 分钟演示剧本：[docs/Demo.md](docs/Demo.md)
 - 已完成与待办变更：[openspec/specs](openspec/specs/)
