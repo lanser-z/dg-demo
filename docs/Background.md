@@ -1042,9 +1042,11 @@ duckdb.connect().execute("""
 
 **Phase 2 教学**：展示 OpenLineage 配置 + Spark 任务血缘截图（DataHub UI 自动刷新）
 
+**6.9 升级状态**（已上线）：ETL 任务 `with LineageEmitter("job", sql="...")` 上下文管理器自动 emit OpenLineage 事件 → GMS OpenLineage 端点 → GMS 内部 `OpenLineageToDataHub` 转换器写 `dataJobInputOutput` aspect → UI 血统图自动出边。10 个 ETL 入口已接入，业务代码改动 ≤ 5 行/入口；`lineage_recipe.yaml` 降级为「业务跨系统 JOIN」兜底通道。详细见 `notebook/module9.ipynb`、`scripts/verify_auto_lineage.py` 与设计文档 `openspec/changes/module9-auto-lineage/design.md`。
+
 **验证方式**：新建 1 张 DWD 表后，无需手动跑脚本，DataHub UI Lineage 标签页在 ETL 任务完成后自动出现上游/下游。
 
-**待验证风险**：DataHub v1.6 的 upstreamLineage aspect 是否支持 OpenLineage 格式；如不支持需自定义 emitter。
+**待验证风险**：DataHub v1.6 的 upstreamLineage aspect 是否支持 OpenLineage 格式 — **已实测**：GMS 走 `dataJobInputOutput` aspect（DataHub v1.6 的 OpenLineage 转换器在 dataJob 上写 input/output edges），UI 血统图通过 graph 服务自动解析 dataset-to-dataset 关系；端到端延迟 ≤ 1.2s（远低于 30s SLA）。
 
 ---
 

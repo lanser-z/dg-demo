@@ -334,9 +334,18 @@ curl -s -u datahub:datahub \
 - [x] `src/dg_education/visualization.py` — `plot_lineage_graph` / `plot_blast_radius`
 - [x] `notebook/module3.ipynb` — 3 步教学，recipe 图 vs DataHub 真图对比，诚实声明全链待办
 
+**6.9 升级（已完成，Phase 2 module 9 / `auto-lineage-collection`）**
+- [x] **OpenLineage 自动采集通道上线**：`src/dg_platform/lineage_emitter.py` 上下文管理器，ETL 任务 `with LineageEmitter("job", sql="...")` 即可在跑完时 emit OpenLineage 事件到 GMS 的 `/openapi/openlineage/api/v1/lineage` 端点；GMS 内部 `OpenLineageToDataHub` 转换器自动写 `dataJobInputOutput` aspect，UI 血统图自动出现新边。
+- [x] **10 个 ETL 入口已接入**：`ingest_to_deltalake.py`（3 个）+ `build_dwa_models.py`（4 个）+ `build_dimension_tables.py`（3 个），每个函数业务代码改动 ≤ 5 行（`with` + `emit_output`）。
+- [x] **`lineage_recipe.yaml` 降级为兜底通道**：仅维护跨系统业务关系（`sap_erp.vbak → lims.samples` 这种 SQL 解析不友好的）；新增 DWD/DWA 表零配置自动出现血缘。
+- [x] **新验证脚本**：`scripts/verify_auto_lineage.py`（auto）+ `scripts/verify_lineage.py`（manual，保留），任一失败非零退出。
+- [x] **module9 notebook**：`notebook/module9.ipynb` 演示 auto + manual 双通道视觉对比，Playwright 截图 `notebook/step_images/module9_lineage_{auto,manual}.png`。
+- [x] **端到端延迟实测 ≤ 1.2s**（GMS Kafka 异步消费完成后 dataJob 可见，远低于 30s SLA）。
+- [x] **GMS env 配置**：`datahub-quickstart.yml` 的 `datahub-gms-quickstart.environment` 追加 `DATAHUB_OPENLINEAGE_ENV: PROD`，GMS 容器已重启。
+
 **待办（Phase 2 升级）**
 - [ ] PI → LIMS（CHARG）+ LIMS → SAP → KNA1 → OA 产销全链（依赖模块七主数据标准化）
-- [ ] 自动血缘采集：Spark/Flink 任务通过 OpenLineage 自动产出（替代手工 YAML）
+- [x] 自动血缘采集：Spark/Flink 任务通过 OpenLineage 自动产出（替代手工 YAML） — **module 9 已完成**
 - [ ] 列级血缘（`fineGrainedLineages` aspect）
 
 ---

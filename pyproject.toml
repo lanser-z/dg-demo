@@ -11,6 +11,7 @@ dependencies = [
     # ── 数据湖 ────────────────────────────
     "pyspark>=3.4",
     "deltalake>=0.12,<1.0",
+    "duckdb>=1.0",
     # ── 数据质量 ──────────────────────────
     "great-expectations>=0.18",
     # ── 时序数据 ──────────────────────────
@@ -27,10 +28,17 @@ dependencies = [
     "matplotlib>=3.10.9",
     "elasticsearch>=9.4.1",
     # ── 元数据平台 ─────────────────────────
-    "acryl-datahub>=0.12",
+    "acryl-datahub[datahub-rest]>=0.12",
     "mysql-connector-python>=9.7.0",
     "playwright>=1.60.0",
     "networkx>=3.4.2",
+    "pyyaml>=6.0",
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    # ── 自动血缘采集（module9, Phase 2 module 9） ─────
+    "openlineage-python>=1.0",
+    "sqlglot>=20.0",
+    "polars>=1.42.1",
 ]
 
 [tool.setuptools.packages.find]
@@ -40,6 +48,12 @@ where = ["src"]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "jupyterlab>=4.0",
+    "ipykernel>=6.25",
+    "notebook>=7.0",
+    "nbconvert>=7.0",
+    "nbformat>=5.9",
+    "ipywidgets>=8.0",
 ]
 
 [tool.dg-demo.data_scale]

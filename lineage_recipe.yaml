@@ -1,8 +1,20 @@
 # Lineage Recipe Configuration
 # Defines upstream lineage relationships for DataHub/GMS ingestion
 #
+# 角色定位（Phase 2 / 模块 6.9 升级后）：
+#   **本文件是「业务跨系统 JOIN」与「未自动覆盖边」的兜底通道**，
+#   不再是 Demo 血缘的唯一来源。
+#
 # 写入方式（scripts/emit_lineage.py）：用 DatahubRestEmitter + MCP + UpstreamLineageClass，
 # 经 POST /aspects?action=ingestProposal 写入 GMS。
+#
+# 双通道并存（auto 通道为主，manual 通道兜底）：
+#   - auto 通道：src/dg_platform/lineage_emitter.py 上下文管理器，ETL 任务
+#     跑完 emit OpenLineage 事件到 GMS（/openapi/openlineage/api/v1/lineage），
+#     GMS 内部 OpenLineageToDataHub 转换器写 dataJobInputOutput aspect。
+#   - manual 通道：本 YAML + emit_lineage.py，跨系统业务关系（业务键 JOIN
+#     不可 SQL 解析的场景）走这里；直接写 upstreamLineage aspect。
+#   - 去重：DataHub graph 服务按 (dataset, upstream) 唯一键合并，UI 不重复。
 #
 # 血缘分两类（DataHub Upstream.type 统一为 TRANSFORMED，语义区分靠 description）：
 #   - 业务血缘（business_lineage）：跨系统按业务语义关联（非字面 JOIN）
