@@ -12,11 +12,11 @@ datahub_client — DataHub 元数据平台集成
   镜像时需要额外初始化步骤。如果数据库未初始化，ingest_metadata 会返回 500 错误。
 - 默认 GMS 地址为 http://localhost:8080，可通过环境变量 DATAHUB_GMS_URL 覆盖。
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
 
 import pandas as pd
 import requests
@@ -25,7 +25,8 @@ import requests
 @dataclass
 class DataHubConfig:
     """DataHub 连接配置"""
-    gms_url: str = os.getenv("DATAHUB_GMS_URL", "http://localhost:8080")
+
+    gms_url: str = os.getenv("DATAHUB_GMS_URL", "http://localhost:28080")
     username: str = os.getenv("DATAHUB_USER", "datahub")
     password: str = os.getenv("DATAHUB_PASSWORD", "datahub")
 
@@ -57,7 +58,10 @@ class DataHubClient:
                 json={"query": "{ __typename }"},
                 timeout=3,
             )
-            return resp.status_code == 200 and resp.json().get("data", {}).get("__typename") == "Query"
+            return (
+                resp.status_code == 200
+                and resp.json().get("data", {}).get("__typename") == "Query"
+            )
         except requests.RequestException:
             return False
 
@@ -71,13 +75,20 @@ class DataHubClient:
         Returns:
             list of dataset metadata dicts
         """
-        filters_line = f'filters: {{ platform: "{platform}" }},\n                    ' if platform else ""
-        query = """
+        filters_line = (
+            f'filters: {{ platform: "{platform}" }},\n                    '
+            if platform
+            else ""
+        )
+        query = (
+            """
         query ListDatasets {
             searchAcrossEntities(
                 input: {
                     query: "*",
-                    """ + filters_line + """
+                    """
+            + filters_line
+            + """
                     start: 0,
                     count: 1000
                 }
@@ -94,6 +105,7 @@ class DataHubClient:
             }
         }
         """
+        )
         try:
             result = self._graphql(query)
             data = result.get("data")
@@ -152,7 +164,9 @@ class DataHubClient:
                 )
                 if resp.status_code == 200:
                     results["ingested"] += 1
-                    results["details"].append({"table": row["table_name"], "status": "ok"})
+                    results["details"].append(
+                        {"table": row["table_name"], "status": "ok"}
+                    )
                 else:
                     # 尝试解析错误信息
                     err_msg = ""
@@ -162,15 +176,19 @@ class DataHubClient:
                     except Exception:
                         err_msg = resp.text[:80]
                     results["failed"] += 1
-                    results["details"].append({
-                        "table": row["table_name"],
-                        "status": "error",
-                        "code": resp.status_code,
-                        "msg": err_msg,
-                    })
+                    results["details"].append(
+                        {
+                            "table": row["table_name"],
+                            "status": "error",
+                            "code": resp.status_code,
+                            "msg": err_msg,
+                        }
+                    )
             except requests.RequestException as e:
                 results["failed"] += 1
-                results["details"].append({"table": row["table_name"], "status": "error", "msg": str(e)})
+                results["details"].append(
+                    {"table": row["table_name"], "status": "error", "msg": str(e)}
+                )
 
         return results
 
