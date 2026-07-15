@@ -1093,7 +1093,7 @@ uv run python scripts/quality_scheduler.py --run-once
 
 ---
 
-### 6.11 模块十一：主题域 DWD（演示 10 分钟，归属 Phase 2）
+### 6.11 模块十一：主题域 DWD（演示 10 分钟，归属 Phase 2）✅ **已上线**
 
 **目标**：从「按系统分 DWD 表」升级为「按业务主题重组 DWD 表」。
 
@@ -1109,6 +1109,37 @@ uv run python scripts/quality_scheduler.py --run-once
 **Phase 2 教学**：展示新目录结构 + 主题域维表（来自 6.1）+ 清洗规则按主题定义
 
 **验证方式**：`data/lakehouse/dwd/` 下存在 `sales/` 和 `production/` 两个子目录；维表在 `dwd/_dimensions/` 目录。
+
+**当前实现（demo 阶段）**：
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 主题目录 | `dwd/{sales,production,coal_quality,finance}/` 共 4 主题 6 张表 | 阿里 MaxCompute 行业标准；6.12 跨主题 JOIN 基础 |
+| 命名规范 | 保留 `dwd_vbak` 等原表名；目录换 | 演示阶段零下游改动；6.12 再统一切换 |
+| 写盘模式 | dual-write（旧 system-分区 + 新 subject-分区 同时存在） | 演示零风险；可回滚；存储 2×（~2 GB） |
+| 维度表 | `dwd/_dimensions/` 保留不动 | `dim_mine` 等跨域共享，不属于任何单一业务域 |
+| DWA 上游 | **仍读 system-分区** | 6.11 仅重组 DWD；切流是 6.12 范围 |
+| DataHub 平台 | `dwd` 自定义 platform（URN `urn:li:dataPlatform:dwd`） | 6 张新表按 `dwd.{subject}.{table}` 命名；browsePathV2 树形 `dwd > sales` |
+| Delta Lake | `deltalake.write_deltalake(mode="overwrite")` | 保留 Delta schema；下游 DuckDB/DeltaTable 无差别读 |
+| DataHub 集成 | `acryl-datahub` SDK + `MetadataChangeProposalWrapper` | 写 `DatasetKeyClass`（必备）+ `DatasetPropertiesClass`（customProperties 标 layer/subject） |
+| lineage | 旧 lineage 边不动；新表通过新 URN 独立索引 | DataHub graph 按 `(dataset, upstream)` 去重，UI 不重复 |
+
+**入口**：
+
+```bash
+# dual-write (教学 / 演示)
+uv run python scripts/restructure_dwd.py
+
+# dry-run (CI 验证)
+uv run python scripts/restructure_dwd.py --dry-run
+
+# DataHub 注册 (6 张新表 + dwd platform)
+uv run python scripts/register_subject_dwd.py
+```
+
+**教学 notebook**：`notebook/module11.ipynb` 3 cells（目录结构对比 / DuckDB 行数严格一致 / Playwright 截图 DataHub UI）
+
+**演进路径**：见 `openspec/changes/module11-subject-domain-dwd/design.md` 第 4 节（6.12 跨主题 JOIN + DWA 切流 + ClickHouse 物化视图）。
 
 ---
 
