@@ -1160,6 +1160,8 @@ uv run python scripts/register_subject_dwd.py
 
 **验证方式**：在 Superset 看板中切换矿井/煤种/时间维度，实时看到指标变化；跨矿井产销对比图一键出数。
 
+**6.12 升级状态**（已上线）：ETL 任务 `scripts/build_dwa_sales_production.py` 用 DuckDB 4 表 LEFT JOIN 跨主题（vbak + kna1 + tags + samples，`mine_code` 派生键桥接）→ 写 `data/lakehouse/dwa/dwa_sales_production/` Delta Lake（440k 行 / 7.7MB，re-query 0.05s）。4 个分析场景 SQL（产销对比 / 煤质定价 / 安全趋势 / 订单履约）跑通。3 张旧 DWA 切上游到 subject-分区（`dwd/{sales,production,coal_quality}/*`）。ClickHouse/Doris/Superset 留 Phase 3 演进。详细见 `notebook/module12.ipynb`、`docs/Module12.md` 与设计文档 `openspec/changes/module12-cross-system-dwa/design.md`。
+
 ---
 
 ### 6.13 模块十三（占位，归属 Phase 3）

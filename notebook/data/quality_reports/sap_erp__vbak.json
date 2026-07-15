@@ -1,0 +1,55 @@
+{
+  "system": "sap_erp",
+  "table": "vbak",
+  "timestamp": "2026-07-15T15:32:47",
+  "score": 66.67,
+  "grade": "D",
+  "passed": 4,
+  "failed": 2,
+  "total": 6,
+  "duration_s": 0.863,
+  "details": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "VBELN",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "NETWR",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "ERNAM",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "KUNNR",
+      "success": false,
+      "unexpected_count": 12688,
+      "unexpected_percent": 2.538
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "column": "VBELN",
+      "success": false,
+      "unexpected_count": 434,
+      "unexpected_percent": 0.087
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "column": "NETWR",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    }
+  ]
+}

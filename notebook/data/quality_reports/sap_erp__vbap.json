@@ -1,0 +1,41 @@
+{
+  "system": "sap_erp",
+  "table": "vbap",
+  "timestamp": "2026-07-15T15:32:48",
+  "score": 75.0,
+  "grade": "C",
+  "passed": 3,
+  "failed": 1,
+  "total": 4,
+  "duration_s": 0.883,
+  "details": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "VBELN",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "MATNR",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "column": "('VBELN', 'POSNR')",
+      "success": false,
+      "unexpected_count": 5180,
+      "unexpected_percent": 1.036
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "column": "NETWR",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    }
+  ]
+}

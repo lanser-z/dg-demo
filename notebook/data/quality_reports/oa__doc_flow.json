@@ -1,0 +1,41 @@
+{
+  "system": "oa",
+  "table": "doc_flow",
+  "timestamp": "2026-07-15T15:32:50",
+  "score": 75.0,
+  "grade": "C",
+  "passed": 3,
+  "failed": 1,
+  "total": 4,
+  "duration_s": 0.524,
+  "details": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "FLOW_ID",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "FLOW_TYPE",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "INITIATOR",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "column": "AMOUNT",
+      "success": false,
+      "unexpected_count": 299958,
+      "unexpected_percent": 59.992
+    }
+  ]
+}

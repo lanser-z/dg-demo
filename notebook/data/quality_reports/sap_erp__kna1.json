@@ -1,0 +1,48 @@
+{
+  "system": "sap_erp",
+  "table": "kna1",
+  "timestamp": "2026-07-15T15:32:48",
+  "score": 80.0,
+  "grade": "B",
+  "passed": 4,
+  "failed": 1,
+  "total": 5,
+  "duration_s": 0.012,
+  "details": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "KUNNR",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "NAME1",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "STCD1",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "column": "KUNNR",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_value_lengths_to_be_between",
+      "column": "STCD1",
+      "success": false,
+      "unexpected_count": 15000,
+      "unexpected_percent": 100.0
+    }
+  ]
+}

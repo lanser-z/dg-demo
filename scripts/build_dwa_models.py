@@ -64,8 +64,8 @@ def build_dwa_sales_daily(conn) -> pd.DataFrame:
     conn.execute("""
         CREATE VIEW IF NOT EXISTS vbak_parquet AS
         SELECT *, '2022' AS year
-        FROM read_parquet('{DATA}/sap_erp/vbak_year=2022.parquet')
-    """.format(DATA=DATA_ROOT))
+        FROM read_parquet('{LAKEHOUSE_ROOT}/dwd/sales/dwd_vbak/*.parquet')
+    """.format(LAKEHOUSE_ROOT=LAKEHOUSE_ROOT))
 
     result = conn.execute("""
         SELECT
@@ -98,7 +98,7 @@ def build_dwa_tag_alarm(conn) -> pd.DataFrame:
     conn.execute(f"""
         CREATE VIEW IF NOT EXISTS pi_tags AS
         SELECT *
-        FROM read_parquet('{DATA_ROOT}/pi_system/tags_year=2022_month=01.parquet')
+        FROM read_parquet('{LAKEHOUSE_ROOT}/dwd/production/dwd_tags/*.parquet')
         LIMIT 500000
     """)
 
@@ -135,7 +135,7 @@ def build_dwa_coal_quality(conn) -> pd.DataFrame:
     conn.execute(f"""
         CREATE VIEW IF NOT EXISTS lims_samples AS
         SELECT *
-        FROM read_parquet('{DATA_ROOT}/lims/samples_year=2022.parquet')
+        FROM read_parquet('{LAKEHOUSE_ROOT}/dwd/coal_quality/dwd_samples/*.parquet')
         LIMIT 200000
     """)
 
@@ -188,7 +188,7 @@ def build_dwd_with_derived(conn) -> dict:
             KUNNR || '_' || VKORG AS customer_salesorg_key
         FROM (
             SELECT *, '2022' AS year
-            FROM read_parquet('{DATA_ROOT}/sap_erp/vbak_year=2022.parquet')
+            FROM read_parquet('{LAKEHOUSE_ROOT}/dwd/sales/dwd_vbak/*.parquet')
             WHERE ERDAT IS NOT NULL
         ) v
     """)
@@ -209,7 +209,7 @@ def build_dwd_with_derived(conn) -> dict:
             ROUND(全硫St * 100 / NULLIF(AD, 0), 2) AS sulfur_ash_ratio
         FROM (
             SELECT *, '2022' AS year
-            FROM read_parquet('{DATA_ROOT}/lims/samples_year=2022.parquet')
+            FROM read_parquet('{LAKEHOUSE_ROOT}/dwd/coal_quality/dwd_samples/*.parquet')
         ) s
         WHERE AD IS NOT NULL
     """)
@@ -247,19 +247,19 @@ def main():
 
         # DWA 1：每日销售汇总
         df_sales = build_dwa_sales_daily(conn)
-        write_delta("dwa/sap_erp/dwa_sales_daily", df_sales)
+        write_delta("dwa/sales/dwa_sales_daily", df_sales)
         cnt, sz = _delta_stats("dwa/sap_erp/dwa_sales_daily")
         print(f"  ✅ dwa_sales_daily: {cnt} files, {sz:.1f} MB")
 
         # DWA 2：传感器告警
         df_alarm = build_dwa_tag_alarm(conn)
-        write_delta("dwa/pi_system/dwa_tag_alarm", df_alarm)
+        write_delta("dwa/production/dwa_tag_alarm", df_alarm)
         cnt, sz = _delta_stats("dwa/pi_system/dwa_tag_alarm")
         print(f"  ✅ dwa_tag_alarm: {cnt} files, {sz:.1f} MB")
 
         # DWA 3：煤质月汇总
         df_quality = build_dwa_coal_quality(conn)
-        write_delta("dwa/lims/dwa_coal_quality", df_quality)
+        write_delta("dwa/coal_quality/dwa_coal_quality", df_quality)
         cnt, sz = _delta_stats("dwa/lims/dwa_coal_quality")
         print(f"  ✅ dwa_coal_quality: {cnt} files, {sz:.1f} MB")
 

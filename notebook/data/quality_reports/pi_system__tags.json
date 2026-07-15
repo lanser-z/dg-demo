@@ -1,0 +1,48 @@
+{
+  "system": "pi_system",
+  "table": "tags",
+  "timestamp": "2026-07-15T15:32:49",
+  "score": 40.0,
+  "grade": "D",
+  "passed": 2,
+  "failed": 3,
+  "total": 5,
+  "duration_s": 0.461,
+  "details": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "tag",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "value",
+      "success": false,
+      "unexpected_count": 2518,
+      "unexpected_percent": 0.504
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "timestamp",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "column": "status",
+      "success": false,
+      "unexpected_count": 2518,
+      "unexpected_percent": 0.504
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "column": "value",
+      "success": false,
+      "unexpected_count": 2518,
+      "unexpected_percent": 0.504
+    }
+  ]
+}

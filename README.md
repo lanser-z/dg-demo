@@ -94,6 +94,7 @@ uv run jupyter lab notebook/        # 启动 Jupyter
 | 10 | `module9.ipynb` | DataHub (OpenLineage) | 自动血缘采集（auto + manual 双通道对比） |
 | 11 | `module10.ipynb` | APScheduler + SQLite | 定时质量监控（Checkpoint + 阈值告警 + 趋势图） |
 | 12 | `module11.ipynb` | DataHub (dwd platform) | 主题域 DWD 重组（dual-write + `dwd` 自定义 platform + 6 张新表 datasetKey） |
+| 13 | `module12.ipynb` | DuckDB OLAP | 跨系统 DWA（4 表 JOIN 宽表 + 4 个分析场景 SQL） |
 
 ---
 

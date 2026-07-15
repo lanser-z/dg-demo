@@ -1,0 +1,62 @@
+{
+  "system": "lims",
+  "table": "samples",
+  "timestamp": "2026-07-15T15:32:49",
+  "score": 71.43,
+  "grade": "C",
+  "passed": 5,
+  "failed": 2,
+  "total": 7,
+  "duration_s": 0.45,
+  "details": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "SAMPLE_ID",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "AD",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "VD",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "column": "全硫St",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "column": "SAMPLE_ID",
+      "success": false,
+      "unexpected_count": 116836,
+      "unexpected_percent": 23.367
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "column": "AD",
+      "success": false,
+      "unexpected_count": 12558,
+      "unexpected_percent": 2.512
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "column": "全硫St",
+      "success": true,
+      "unexpected_count": 0,
+      "unexpected_percent": 0.0
+    }
+  ]
+}
