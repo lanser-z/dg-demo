@@ -62,30 +62,37 @@ ODS_TABLES = {
 
 
 # ============================================================
-# DWD 层定义（清洗规则）
+# DWD 层定义（清洗规则 → 直接写 subject 分区，Delta Lake）
+#
+# 历史：旧版写 dwd/{system}/dwd_xxx（system 分区，纯 Parquet）。
+# 自 restructure_dwd.py (Phase 2) 起，DWA 汇总层消费 dwd/{subject}/dwd_xxx
+# （subject 分区，Delta Lake）。两套并存造成困惑。
+# 本次修复：ingest_to_deltalake --layer dwd 直接写新 subject 路径，
+# 旧 system 路径不再写入（仅保留供对照参考）。
 # ============================================================
 DWD_TABLES = {
-    "sap_erp/dwd_vbak": {
+    # 主题目录路径 → (源 ODS 表, 清洗描述)
+    "sales/dwd_vbak": {
         "source": "sap_erp/vbak",
         "description": "销售订单清洗：去空值、去重复、NETWR标准化",
     },
-    "sap_erp/dwd_vbap": {
+    "sales/dwd_vbap": {
         "source": "sap_erp/vbap",
         "description": "行项清洗：过滤 MATNR 为空、NETWR≤0",
     },
-    "sap_erp/dwd_kna1": {
+    "sales/dwd_kna1": {
         "source": "sap_erp/kna1",
         "description": "客户主数据：过滤 NAME1/STCD1 为空，KUNNR 补零至10位",
     },
-    "pi_system/dwd_tags": {
+    "production/dwd_tags": {
         "source": "pi_system/tags",
         "description": "PI数据：过滤 status=-1、value 超 [0,10000] 范围",
     },
-    "lims/dwd_samples": {
+    "coal_quality/dwd_samples": {
         "source": "lims/samples",
         "description": "LIMS：过滤 SAMPLE_ID/AD 为空、AD<0",
     },
-    "oa/dwd_doc_flow": {
+    "finance/dwd_doc_flow": {
         "source": "oa/doc_flow",
         "description": "OA流：过滤 FLOW_TYPE/APPLY_DATE 为空",
     },
@@ -195,9 +202,13 @@ def ingest_ods():
 
 
 def ingest_dwd():
-    """DWD 层入湖：清洗后写入"""
+    """DWD 层入湖：清洗后写入 subject 分区路径，Delta Lake 格式。
+
+    路径与 restructure_dwd.py 的 dual-write 目标路径保持一致，
+    保证 DWA 汇总层（build_dwa_models.py）能正确读取。
+    """
     print("\n" + "=" * 60)
-    print("🧹 DWD 层入湖：数据清洗")
+    print("🧹 DWD 层入湖：数据清洗 → subject 分区 → Delta Lake")
     print("=" * 60)
 
     for table_key, cfg in DWD_TABLES.items():
@@ -217,6 +228,8 @@ def ingest_dwd():
         pct = dropped / before * 100 if before > 0 else 0
 
         print(f"  {before:,} → {after:,} 行 (剔除 {dropped:,} 行, {pct:.1f}%)")
+        # DWD_TABLES 的 key 已是 subject 路径（如 "sales/dwd_vbak"），
+        # write_delta 会写到 dwd/sales/dwd_vbak/
         write_delta(f"dwd/{table_key}", df, [])
         cnt, size = delta_stats(f"dwd/{table_key}")
         print(f"  ✅ Delta Lake: {cnt} files, {size:.1f} MB")
@@ -225,7 +238,11 @@ def ingest_dwd():
 
 
 def ingest_dwa():
-    """DWA 层入湖：汇总宽表（打印计划，不实际执行）"""
+    """DWA 层规划打印（汇总计算由 build_dwa_models.py 完成）。
+
+    注意：DWA 输出路径与 ingest_to_deltalake 的 DWD subject 路径对齐，
+    确保数据流连贯：ODS → DWD(subject) → DWA。
+    """
     print("\n" + "=" * 60)
     print("📊 DWA 层入湖：业务汇总宽表")
     print("=" * 60)
