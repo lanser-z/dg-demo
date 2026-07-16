@@ -7,12 +7,15 @@ DWA 层汇总宽表 — 用 DuckDB 对 Delta Lake / Parquet 数据做 OLAP 聚�
 """
 import argparse
 import os
+import sys
 import time
 
 import duckdb
 import pandas as pd
 from deltalake.writer import write_deltalake
-from deltalake import DeltaTable
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+from dg_platform.lineage_emitter import LineageEmitter
 
 # 路径配置
 LAKEHOUSE_ROOT = "/home/szs/Playground/dg-demo/data/lakehouse"
@@ -20,6 +23,30 @@ DATA_ROOT = "/home/szs/Playground/dg-demo/data/historical"
 
 # DWA 聚合 LIMIT 常量（教学用）
 DWA_SALES_LIMIT = 30   # 日销售汇总最大天数
+
+# sqlglot 解析用 SQL 字符串（供 LineageEmitter 推导 inputs）
+SQL_SALES = (
+    "SELECT sale_date, order_count, customer_count, total_amount "
+    "FROM dwd.sales.dwd_vbak GROUP BY sale_date"
+)
+SQL_ALARM = (
+    "SELECT mine, face, tag, high_value_count, missing_count "
+    "FROM dwd.production.dwd_tags GROUP BY mine, face, tag"
+)
+SQL_QUALITY = (
+    "SELECT mine_code, mine_name, month, sample_type, avg_ash_content "
+    "FROM dwd.coal_quality.dwd_samples GROUP BY mine_code, mine_name, month, sample_type"
+)
+
+
+def _emit_lineage(job_name: str, sql: str, output_urn: str | None,
+                  emit: bool = True) -> LineageEmitter | None:
+    """包装 LineageEmitter lifecycle；emit=False 时返回 None 不阻断 ETL。"""
+    if not emit or not output_urn:
+        return None
+    ctx = LineageEmitter(job_name=job_name, sql=sql)
+    ctx.__enter__()
+    return ctx
 
 
 def get_duckdb():
@@ -228,6 +255,10 @@ def main():
     parser = argparse.ArgumentParser(description="DWA 层汇总建模")
     parser.add_argument("--layer", default="all",
                         choices=["dwa", "dwd", "all"])
+    parser.add_argument("--lineage", action="store_true", default=True,
+                        help="emit OpenLineage to GMS (default: True)")
+    parser.add_argument("--no-lineage", dest="lineage", action="store_false",
+                        help="skip OpenLineage emit")
     args = parser.parse_args()
 
     t0 = time.time()
@@ -247,19 +278,34 @@ def main():
 
         # DWA 1：每日销售汇总
         df_sales = build_dwa_sales_daily(conn)
+        out_urn_sales = "urn:li:dataset:(urn:li:dataPlatform:dwa,dwa_sales_daily,PROD)"
+        ctx = _emit_lineage("build_dwa_sales_daily", SQL_SALES, out_urn_sales, args.lineage)
         write_delta("dwa/sales/dwa_sales_daily", df_sales)
+        if ctx:
+            ctx.emit_output(out_urn_sales, df_sales)
+            ctx.__exit__(None, None, None)
         cnt, sz = _delta_stats("dwa/sap_erp/dwa_sales_daily")
         print(f"  ✅ dwa_sales_daily: {cnt} files, {sz:.1f} MB")
 
         # DWA 2：传感器告警
         df_alarm = build_dwa_tag_alarm(conn)
+        out_urn_alarm = "urn:li:dataset:(urn:li:dataPlatform:dwa,dwa_tag_alarm,PROD)"
+        ctx = _emit_lineage("build_dwa_tag_alarm", SQL_ALARM, out_urn_alarm, args.lineage)
         write_delta("dwa/production/dwa_tag_alarm", df_alarm)
+        if ctx:
+            ctx.emit_output(out_urn_alarm, df_alarm)
+            ctx.__exit__(None, None, None)
         cnt, sz = _delta_stats("dwa/pi_system/dwa_tag_alarm")
         print(f"  ✅ dwa_tag_alarm: {cnt} files, {sz:.1f} MB")
 
         # DWA 3：煤质月汇总
         df_quality = build_dwa_coal_quality(conn)
+        out_urn_quality = "urn:li:dataset:(urn:li:dataPlatform:dwa,dwa_coal_quality,PROD)"
+        ctx = _emit_lineage("build_dwa_coal_quality", SQL_QUALITY, out_urn_quality, args.lineage)
         write_delta("dwa/coal_quality/dwa_coal_quality", df_quality)
+        if ctx:
+            ctx.emit_output(out_urn_quality, df_quality)
+            ctx.__exit__(None, None, None)
         cnt, sz = _delta_stats("dwa/lims/dwa_coal_quality")
         print(f"  ✅ dwa_coal_quality: {cnt} files, {sz:.1f} MB")
 
