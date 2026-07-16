@@ -377,7 +377,7 @@ df_vbap = clean_vbap(df_raw_vbap)  # 过滤 MATNR 为空、NETWR≤0
 
 | 应用 | 数据来源 | 使用方 |
 |------|---------|--------|
-| 产销分析看板 | dws_sales_production | 销售部 |
+| 产销分析看板 | dwd_sales_production | 销售部 |
 | 安全预警大屏 | dwd_production_tag | 安全部/调度中心 |
 | 煤质结算报表 | dwd_coal_quality | 煤质中心/财务部 |
 | 合同追溯查询 | dwd_oa_flow + dwd_sales_order | 法务部/审计部 |
@@ -449,7 +449,10 @@ GROUP BY production_date, mine_code
 |------|---------|---------|
 | ODS | CDC（Debezium）或时间戳比对 | `scripts/generate_incremental.py` |
 | DWD | 快照全量 + 时间戳过滤 | `scripts/ingest_to_deltalake.py --layer dwd` |
+| DWM | 增量聚合：只重算当日有变动的粒度（如 `矿井_日期` 粒度只重算当天行） | 无独立脚本（当前由 DWA 脚本覆盖） |
 | DWA | DuckDB 增量聚合 | `scripts/build_dwa_models.py` |
+
+> **DWM 增量原理**：DWM 粒度粗（如 `dwm_production_daily` 粒度为 `矿井_日期`），上游 DWD 增量写入后，只需重算当日 `日期=当天` 的聚合行，其余历史行直接复用。相比 DWD 的"快照全量"，DWM 的增量代价更小。
 
 ```python
 # 当前增量调度逻辑（手动执行）
@@ -520,12 +523,12 @@ uv run python scripts/build_dwa_models.py --layer dwa
                     │  产销一体化主表  │
                     └────────┬────────┘
                              │
-          ┌──────────────────┼──────────────────┐
-          │                  │                  │
-   ┌──────▼──────┐  ┌───────▼──────┐  ┌──────▼──────┐
-   │ dim_mine     │  │  dim_time    │  │ dim_customer │
-   │ 矿井维度表   │  │  时间维度表  │  │ 客户维度表  │
-   └──────────────┘  └──────────────┘  └──────────────┘
+           ┌─────────────────┼─────────────────┐
+           │                 │                   │
+    ┌──────▼──────┐ ┌──────▼──────┐  ┌──────▼──────┐
+    │ dim_mine     │ │ dim_coal_type│  │ dim_customer │
+    │ 矿井维度表     │ │  煤种维度表  │  │ 客户维度表  │
+    └──────────────┘ └─────────────┘  └──────────────┘
 ```
 
 **事实表（dwm_fact_sales）**：
@@ -546,6 +549,29 @@ uv run python scripts/build_dwa_models.py --layer dwa
 | avg_calorific_mjkg | DECIMAL(8,2) | 日均发热量 |
 | order_cnt | INT | 日订单笔数 |
 | customer_cnt | INT | 日客户数 |
+
+**维度表（dim）**：
+
+| 维度表 | 字段 | 类型 | 说明 | 当前数据量 |
+|--------|------|------|------|-----------|
+| dim_mine | mine_code | VARCHAR(10) | 矿井编码（主键） | 5 |
+| | mine_name | VARCHAR(100) | 矿井名称 | |
+| | mine_type | VARCHAR(20) | 矿井类型 | |
+| | sap_mine_field | VARCHAR(10) | SAP 矿井字段映射 | |
+| | pi_mine_field | VARCHAR(10) | PI 矿井字段映射 | |
+| | lims_mine_field | VARCHAR(10) | LIMS 矿井字段映射 | |
+| dim_customer | kunnr | VARCHAR(10) | 客户编码（主键） | 15,000 |
+| | customer_name | VARCHAR(100) | 客户名称 | |
+| | region | VARCHAR(50) | 客户所在地区 | |
+| | credit_level | VARCHAR(20) | 信用等级（当前为 UNKNOWN） | |
+| dim_coal_type | coal_type | VARCHAR(20) | 煤种编码（主键） | — |
+| | coal_name | VARCHAR(50) | 煤种名称（例：原煤/精煤/中煤/矸石） | |
+| | ash_range | VARCHAR(20) | 灰分参考区间 | |
+| | sulfur_limit_pct | DECIMAL(5,2) | 硫分上限参考值 | |
+
+> **设计说明**：dim_coal_type 由 LIMS 煤种主数据（SAMPLE_TYPE 字段）提取，ash_range / sulfur_limit_pct 来自 `docs/Design.md` 第 4.2.2 节的时序数据标签标准——这正是维度表"把外键翻译成可读标签"的典型作用。
+>
+> **数据来源**：维度表由 `scripts/build_dimension_tables.py` 从 DWD 层（subject 分区）提取，去重后写入 `data/lakehouse/dwd/_dimensions/` Delta Lake 表。
 
 ### 6.3 物化视图设计（查询加速）
 

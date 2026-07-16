@@ -196,7 +196,7 @@ for h in d.get('hits',{}).get('hits',[]):
 **数据入湖层（100%）**
 - [x] Delta Lake 本地存储 data/lakehouse/
 - [x] ODS 层：6 张 Parquet 入湖（sap_erp/pi_system/lims/oa）
-- [x] DWD 层：6 张清洗表（去空值/去重复/规范化）
+- [x] DWD 层：6 张清洗表（去空值/去重复/规范化），**subject 分区 + Delta Lake**
 - [x] DWA 层：3 张汇总宽表（销售/告警/煤质）
 
 **数据质量层（100%）**
@@ -316,10 +316,11 @@ uv run python scripts/build_dwa_models.py --layer dwa
 
 **DWD 层输出示例**：
 ```
-▶ sap_erp/dwd_vbak
+▶ sales/dwd_vbak
   3,014,284 → 2,999,312 行 (剔除 14,972 行, 0.5%)
-  ✅ Delta Lake: 4 files, 219.8 MB
+  ✅ Delta Lake: 50 files, 484.0 MB
 ```
+注意：DWD 表写入 `dwd/{subject}/` 路径（subject 分区），与 `build_dwa_models.py` 汇总层消费路径一致。
 
 **DWA 层输出示例**：
 ```
@@ -342,8 +343,9 @@ uv run python scripts/build_dwa_models.py --layer dwa
 **After**：Delta Lake 本地存储（data/lakehouse/），事务支持 + Schema 演进
 
 **教学要点**：
-- ODS（原始层）→ DWD（清洗层）→ DWA（汇总层）的分层理念
-- Delta Lake ACID 事务 + Parquet 分区
+- ODS（原始层）→ DWD（清洗层）→ DWA（汇总层）的分层理念，**三层全部 Delta Lake**
+- Delta Lake ACID 事务：DWD 清洗中途失败可回滚，不留脏数据
+- Delta Lake Time Travel：DWD 规则调整后可从历史版本重算 DWA，无需重抽 ODS
 - 数据清洗规则（去空值、去重复、范围校验）
 
 ---
