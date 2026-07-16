@@ -10,12 +10,22 @@ ETL 任务从 SQL 解析自动 emit OpenLineage 1.x 事件，HTTP 直发到 Data
 ETL 入口脚本（`scripts/ingest_to_deltalake.py`、`scripts/build_dwa_models.py`、`scripts/build_dimension_tables.py`）MUST 在主函数入口使用 `with LineageEmitter("job_name", sql="...") as e:` 上下文管理器，ETL 跑完自动 emit START 与 COMPLETE 事件，业务代码改动 MUST ≤ 5 行/入口。
 
 #### Scenario: 上下文管理器存在并被 ETL 调用
-- **WHEN** 检查 `scripts/ingest_to_deltalake.py` / `scripts/build_dwa_models.py` / `scripts/build_dimension_tables.py` 三文件全文搜索 `with LineageEmitter(`
-- **THEN** 三个文件 MUST 各至少 1 次命中
+- **WHEN** 检查 `scripts/ingest_to_deltalake.py` / `scripts/build_dwa_models.py` / `scripts/build_dimension_tables.py` / `scripts/build_dwa_sales_production.py` 四文件全文搜索 `with LineageEmitter(`
+- **THEN** `scripts/build_dwa_models.py` MUST 至少 3 次命中（3 个 DWA job），`scripts/build_dwa_sales_production.py` 至少 1 次命中，其余文件各至少 1 次命中
+
+> 变更说明：原 spec 假设 3 个文件各接 1 次；实际 `build_dwa_models.py` 有 3 个 DWA ETL job 需要各自接入，`build_dwa_sales_production.py` 已单独接入。
+
+#### Scenario: 共享 helper 函数减少 boilerplate
+- **WHEN** 检查 `scripts/build_dwa_models.py`
+- **THEN** `_emit_lineage(job_name, sql, output_urn, emit)` helper 函数 MUST 存在且被 3 个 DWA job 调用
+
+#### Scenario: `--lineage` flag 控制 emit
+- **WHEN** `scripts/build_dwa_models.py` 的 `main()` CLI 参数
+- **THEN** MUST 支持 `--lineage`（emit）和 `--no-lineage`（跳过 emit）flag，不阻断 ETL
 
 #### Scenario: 业务代码改动不超过 5 行
 - **WHEN** 统计每个 ETL 入口中 LineageEmitter 相关代码行数（从 `with LineageEmitter(` 到 `e.emit_output(` 闭包）
-- **THEN** 每个文件 MUST ≤ 5 行
+- **THEN** 每个入口 MUST ≤ 5 行
 
 ### Requirement: LineageEmitter 用 sqlglot 从 SQL 解析 inputs
 
