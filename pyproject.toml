@@ -41,6 +41,7 @@ dependencies = [
     "polars>=1.42.1",
     # ── 定时调度（module10, Phase 2 module 6.10） ─────
     "apscheduler>=3.10",
+    "python-dotenv>=1.2.2",
 ]
 
 [tool.setuptools.packages.find]

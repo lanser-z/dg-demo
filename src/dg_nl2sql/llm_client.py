@@ -1,15 +1,15 @@
 """
-llm_client — OpenAI 兼容协议的 LLM 客户端（使用 requests 库）。
+llm_client - OpenAI 兼容协议的 LLM 客户端（使用 requests 库）。
 
 设计原则：
 - 仅依赖 requests 库，不引入 openai SDK
 - 走标准 OpenAI Chat Completions 协议（POST {api_url}/chat/completions）
 - 错误处理：非 200 抛异常带状态码和响应体；超时抛异常
-- 默认配置从环境变量读，env 缺失时回退到硬编码默认值
+- 配置从 .env 文件读取（NL2SQL_API_KEY / NL2SQL_API_URL / NL2SQL_MODEL）
 
 用法：
     from dg_nl2sql.llm_client import LLMClient
-    client = LLMClient()  # 用环境变量 / 默认配置
+    client = LLMClient()  # 从 .env / 环境变量读取配置
     answer = client.chat("你是助手", "你好")
 """
 from __future__ import annotations
@@ -19,11 +19,10 @@ import time
 from typing import Any
 
 import requests
+from dotenv import load_dotenv
 
+load_dotenv()  # 从项目根目录 .env 加载环境变量
 
-DEFAULT_API_KEY = "__REDACTED_API_KEY__"
-DEFAULT_API_URL = "__REDACTED_API_URL__"
-DEFAULT_MODEL = "MiniMax-M2.7-highspeed"
 DEFAULT_TIMEOUT = 30
 
 
@@ -44,9 +43,18 @@ class LLMClient:
         model: str | None = None,
         timeout: int = DEFAULT_TIMEOUT,
     ) -> None:
-        self.api_key = api_key or os.getenv("NL2SQL_API_KEY", DEFAULT_API_KEY)
-        self.api_url = (api_url or os.getenv("NL2SQL_API_URL", DEFAULT_API_URL)).rstrip("/")
-        self.model = model or os.getenv("NL2SQL_MODEL", DEFAULT_MODEL)
+        api_key = api_key or os.getenv("NL2SQL_API_KEY")
+        api_url = (api_url or os.getenv("NL2SQL_API_URL"))
+        model = model or os.getenv("NL2SQL_MODEL")
+        if not api_key:
+            raise LLMError("NL2SQL_API_KEY 未设置，请在 .env 或环境变量中配置")
+        if not api_url:
+            raise LLMError("NL2SQL_API_URL 未设置，请在 .env 或环境变量中配置")
+        if not model:
+            raise LLMError("NL2SQL_MODEL 未设置，请在 .env 或环境变量中配置")
+        self.api_key = api_key
+        self.api_url = api_url.rstrip("/")
+        self.model = model
         self.timeout = timeout
         # 复用 session 提升连接效率
         self._session = requests.Session()
