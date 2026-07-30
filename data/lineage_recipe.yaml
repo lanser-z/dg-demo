@@ -92,6 +92,12 @@ lineage_relationships:
     description: "DWD 清洗后 LIMS 样品"
 
   # ── 加工血缘（DWD/ODS → DWA 汇总，由 build_dwa_models.py 真实派生） ──
+  # 3 条 DWA 边声明 columnMappings 字段（列级血缘），
+  # emit_lineage.py 会读取并以 fineGrainedLineages 写入 GMS upstreamLineage aspect。
+  # 字段映射以 Parquet schema 为准（不凭空猜测）：
+  #   - dwa_sales_daily 来源 dwd.vbak (vbak) — VBELN/ERDAT/ERZET/ERNAM/AUART/KUNNR/NETWR/...
+  #   - dwa_tag_alarm 来源 pi_system.tags — tag/timestamp/value/status/mine/face
+  #   - dwa_coal_quality 来源 lims.samples — SAMPLE_ID/MINE_CODE/.../AD/VD/全硫St/QGR_AD/...
   - downstream:
       platform: dwa
       table: dwa_sales_daily
@@ -100,6 +106,28 @@ lineage_relationships:
         table: vbak
     type: processing_lineage
     description: "DWA 每日销售汇总宽表（GROUP BY ERDAT，COUNT/SUM，来自 dwd_vbak）"
+    columnMappings:
+      - downstream_column: sale_date
+        upstream_column: ERDAT
+        transformation: "STRFTIME(CAST(ERDAT AS DATE), '%Y-%m-%d')"
+      - downstream_column: order_count
+        upstream_column: "*"
+        transformation: "COUNT(*)"
+      - downstream_column: customer_count
+        upstream_column: KUNNR
+        transformation: "COUNT(DISTINCT KUNNR)"
+      - downstream_column: total_amount
+        upstream_column: NETWR
+        transformation: "SUM(NETWR)"
+      - downstream_column: avg_order_amount
+        upstream_column: NETWR
+        transformation: "AVG(NETWR)"
+      - downstream_column: order_type_count
+        upstream_column: AUART
+        transformation: "COUNT(DISTINCT AUART)"
+      - downstream_column: sales_org_count
+        upstream_column: VKORG
+        transformation: "COUNT(DISTINCT VKORG)"
 
   - downstream:
       platform: dwa
@@ -109,6 +137,37 @@ lineage_relationships:
         table: tags
     type: processing_lineage
     description: "DWA 传感器告警汇总宽表（按标签聚合告警次数，来自 pi_system.tags）"
+    columnMappings:
+      - downstream_column: mine
+        upstream_column: mine
+        transformation: "直接映射"
+      - downstream_column: face
+        upstream_column: face
+        transformation: "直接映射"
+      - downstream_column: tag
+        upstream_column: tag
+        transformation: "直接映射"
+      - downstream_column: total_records
+        upstream_column: "*"
+        transformation: "COUNT(*)"
+      - downstream_column: missing_count
+        upstream_column: status
+        transformation: "SUM(CASE WHEN status = -1 THEN 1 ELSE 0 END)"
+      - downstream_column: high_value_count
+        upstream_column: value
+        transformation: "SUM(CASE WHEN value > 8000 THEN 1 ELSE 0 END)"
+      - downstream_column: avg_value
+        upstream_column: value
+        transformation: "AVG(value)"
+      - downstream_column: stddev_value
+        upstream_column: value
+        transformation: "STDDEV(value)"
+      - downstream_column: min_value
+        upstream_column: value
+        transformation: "MIN(value)"
+      - downstream_column: max_value
+        upstream_column: value
+        transformation: "MAX(value)"
 
   - downstream:
       platform: dwa
@@ -118,3 +177,40 @@ lineage_relationships:
         table: samples
     type: processing_lineage
     description: "DWA 月度煤质汇总宽表（按矿井/煤种/月聚合灰分热值，来自 lims.samples）"
+    columnMappings:
+      - downstream_column: MINE_CODE
+        upstream_column: MINE_CODE
+        transformation: "直接映射"
+      - downstream_column: MINE_NAME
+        upstream_column: MINE_NAME
+        transformation: "直接映射"
+      - downstream_column: month
+        upstream_column: SAMPLING_DATE
+        transformation: "SUBSTR(SAMPLING_DATE, 1, 7)"
+      - downstream_column: SAMPLE_TYPE
+        upstream_column: SAMPLE_TYPE
+        transformation: "直接映射"
+      - downstream_column: sample_count
+        upstream_column: "*"
+        transformation: "COUNT(*)"
+      - downstream_column: avg_ash_content
+        upstream_column: AD
+        transformation: "AVG(AD)"
+      - downstream_column: avg_volatile_content
+        upstream_column: VD
+        transformation: "AVG(VD)"
+      - downstream_column: avg_sulfur_content
+        upstream_column: 全硫St
+        transformation: "AVG(全硫St)"
+      - downstream_column: avg_gross_calorific
+        upstream_column: QGR_AD
+        transformation: "AVG(QGR_AD)"
+      - downstream_column: min_ash_content
+        upstream_column: AD
+        transformation: "MIN(AD)"
+      - downstream_column: max_ash_content
+        upstream_column: AD
+        transformation: "MAX(AD)"
+      - downstream_column: lab_count
+        upstream_column: TEST_LAB
+        transformation: "COUNT(DISTINCT TEST_LAB)"

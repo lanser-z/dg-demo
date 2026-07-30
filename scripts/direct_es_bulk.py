@@ -159,11 +159,18 @@ ASSETS = [
 # ============================================================
 # 2. 按系统读取 Parquet 补充行数/存储大小信息
 # ============================================================
+import time
+
+
 def get_parquet_stats(system, table):
     """从 Parquet 文件读取行数和存储大小"""
     root = "/home/szs/Playground/dg-demo/data/historical"
-    pattern = os.path.join(root, system, "**", "*.parquet")
-    files = sorted(glob.glob(pattern, recursive=True))
+    candidates = glob.glob(os.path.join(root, system, "**", "*.parquet"), recursive=True)
+    files = sorted(
+        f for f in candidates
+        if os.path.basename(f) == f"{table}.parquet"
+        or os.path.basename(f).startswith(f"{table}_")
+    )
     if not files:
         return 0, 0
     total_rows = 0
@@ -180,12 +187,17 @@ def build_es_doc(asset, rows=None, size_mb=None):
         "urn": asset["urn"],
         "name": asset["name"],
         "description": asset["description"],
-        "platform": asset["platform"],
+        "platform": f"urn:li:dataPlatform:{asset['platform']}",
         "tags": asset.get("tags", []),
-        "browsePath": asset["browsePath"],
+        "browsePath": asset["browsePath"],  # backward compatibility
+        "browsePaths": [f"/prod/{asset['platform']}/{asset['table']}"],
         "browsePathV2": asset["browsePathV2"],
         "rowCount": rows,
         "sizeInBytes": int(size_mb * 1024 * 1024) if size_mb else None,
+        "removed": False,
+        "systemCreated": int(time.time() * 1000),
+        "origin": "PROD",
+        "id": asset["table"],
     }
 
 

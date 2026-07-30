@@ -1,0 +1,757 @@
+# A 公司煤炭数据治理 Demo — 字段业务词典
+# ────────────────────────────────────────────────────────────────────────
+# 用途：NL2SQL 智能问数 / DataHub 字段语义增强 / 跨系统术语消解
+#
+# 数据来源：
+# - 字段中文名 / 业务含义：docs/Background.md（SAP 字段命名 + 煤炭业务术语）
+# - value_mappings：以 data/lakehouse/{dwd,dwa,ods}/.../*.parquet 实际值为准
+#   （已用 pyarrow 读 schema + unique() 核对，无数据可查的表不填 value_mappings）
+#
+# 写入路径：scripts/emit_glossary.py 读本文件，调用 DataHub SDK
+# （底层 POST http://localhost:28080/aspects?action=ingestProposal）
+# 将每条 (table, column, business_term) 三元组写为 dataset-level
+# glossaryTerms aspect 的一项 GlossaryTermAssociation，context 字段记录
+# 「<table>.<column>」用于反查。
+#
+# URN 规范：
+#   dataset:   urn:li:dataset:(urn:li:dataPlatform:{platform},{table},PROD)
+#   glossary:  urn:li:glossaryTerm:a-company.coal.{category}.{term_id}
+#     类别: dim 维度 / master 主数据 / code 编码 / metric 指标 / kpi 业务术语
+#
+# 约束：
+# - 不得修改 docs/*.md
+# - 不得引入新的 pip 依赖（仅用 pyyaml + 已装的 DataHub SDK + requests）
+# - value_mappings 必须以实际 Parquet 数据值为准（不得凭空猜测）
+# ────────────────────────────────────────────────────────────────────────
+
+glossary:
+  # ── 1. SAP-ERP VBAK 销售订单抬头（15 字段，data 已核验） ──────────────
+  - platform: sap_erp
+    table: vbak
+    table_cn: 销售订单抬头
+    columns:
+      - column: VBELN
+        cn_name: 销售凭证号
+        description: SAP 销售订单唯一编号（10 位字符串）
+        business_terms: [销售订单号, 销售单, 销售凭证]
+      - column: ERDAT
+        cn_name: 凭证创建日期
+        description: 销售订单创建日期（YYYYMMDD）
+        business_terms: [订单日期, 创建日期]
+      - column: ERZET
+        cn_name: 凭证创建时间
+        description: 销售订单创建时间（HHMMSS）
+        business_terms: [创建时间, 录入时间]
+      - column: ERNAM
+        cn_name: 创建人
+        description: 销售订单创建者账号（如 LIISI / ZHANGSAN）
+        business_terms: [录入人, 业务员]
+      - column: AUART
+        cn_name: 销售凭证类型
+        description: 销售订单类型代码
+        business_terms: [订单类型, 凭证类型]
+        value_mappings:
+          OR: 标准订单
+          ZOR: 退回订单
+          RET: 退货单
+      - column: KUNNR
+        cn_name: 客户编号
+        description: 6 位客户主数据编码（关联 KNA1-KUNNR）
+        business_terms: [客户编码, 客户号]
+      - column: NETWR
+        cn_name: 销售订单净金额
+        description: 销售订单净额（不含税，单位：WAERK 币种）
+        business_terms: [订单金额, 销售金额, 销售额]
+      - column: WAERK
+        cn_name: 币种
+        description: 销售订单币种代码
+        business_terms: [货币, 结算币种]
+        value_mappings:
+          CNY: 人民币
+      - column: VKORG
+        cn_name: 销售组织
+        description: SAP 销售组织代码
+        business_terms: [销售组织, 销售分公司]
+        value_mappings:
+          CN01: 销售一公司
+          CN02: 销售二公司
+          CN03: 销售三公司
+      - column: VTWEG
+        cn_name: 分销渠道
+        description: SAP 分销渠道代码
+        business_terms: [销售渠道, 分销渠道]
+        value_mappings:
+          "10": 直销
+          "20": 分销
+      - column: SPART
+        cn_name: 产品组
+        description: SAP 产品组代码
+        business_terms: [产品组, 物料组]
+        value_mappings:
+          "00": 综合产品组
+          "01": 煤炭产品组
+          "02": 焦炭产品组
+          "03": 化工产品组
+      - column: BSTNK
+        cn_name: 客户参考单号
+        description: 客户采购单号
+        business_terms: [客户单号, 采购单号]
+      - column: BZIRK
+        cn_name: 销售大区
+        description: SAP 销售大区代码
+        business_terms: [销售大区, 区域代码]
+        value_mappings:
+          D001: 华北大区
+          D002: 东北大区
+          D003: 华东大区
+          D004: 华南大区
+          D005: 西南大区
+
+  # ── 2. SAP-ERP VBAP 销售订单行项目（8 字段，data 已核验） ──────────────
+  - platform: sap_erp
+    table: vbap
+    table_cn: 销售订单行项目
+    columns:
+      - column: VBELN
+        cn_name: 销售凭证号
+        description: 关联 VBAK-VBELN 销售订单抬头编号
+        business_terms: [订单号, 销售单]
+      - column: POSNR
+        cn_name: 行项目号
+        description: 销售订单行项目编号（6 位）
+        business_terms: [行号, 行项目]
+      - column: MATNR
+        cn_name: 物料编码
+        description: SAP 物料主数据编码（关联 MARA-MATNR）
+        business_terms: [物料号, 物料编码]
+      - column: KWMENG
+        cn_name: 销售订单数量
+        description: 销售订单数量（销售单位 VRKME）
+        business_terms: [订单数量, 销售数量]
+      - column: VRKME
+        cn_name: 销售单位
+        description: 销售订单计量单位
+        business_terms: [计量单位, 销售单位]
+        value_mappings:
+          TO: 吨
+      - column: NETWR
+        cn_name: 行项目净金额
+        description: 销售订单行项目净额（不含税）
+        business_terms: [行金额, 销售金额]
+      - column: CHARG
+        cn_name: 批次号
+        description: SAP 批次号（连接 LIMS 煤质批次）
+        business_terms: [批次, 批次号, 批号]
+      - column: WERKS
+        cn_name: 工厂代码
+        description: SAP 工厂代码
+        business_terms: [工厂, 发货工厂]
+        value_mappings:
+          CN01: 一矿工厂
+          CN02: 二矿工厂
+          CN03: 三矿工厂
+      - column: LGORT
+        cn_name: 库存地点
+        description: SAP 库存地点代码
+        business_terms: [库存地点, 库位]
+        value_mappings:
+          FG01: 成品一库
+          FG02: 成品二库
+          FG03: 成品三库
+          RM01: 原料库
+
+  # ── 3. SAP-ERP KNA1 客户主数据（5 字段，data 已核验） ──────────────────
+  - platform: sap_erp
+    table: kna1
+    table_cn: 客户主数据
+    columns:
+      - column: KUNNR
+        cn_name: 客户编号
+        description: 6 位客户主数据编码
+        business_terms: [客户号, 客户编码]
+      - column: NAME1
+        cn_name: 客户名称
+        description: 客户公司全称（如「陕西煤业化工集团」）
+        business_terms: [公司名称, 客户名]
+      - column: NAME2
+        cn_name: 客户简称
+        description: 客户公司简称
+        business_terms: [公司简称, 客户简称]
+      - column: ORT01
+        cn_name: 客户所在城市
+        description: 客户公司所在城市
+        business_terms: [城市, 注册地]
+      - column: STCD1
+        cn_name: 社会信用代码
+        description: 客户统一社会信用代码（18 位）
+        business_terms: [统一社会信用代码, 税号]
+      - column: ERDAT
+        cn_name: 主数据创建日期
+        description: 客户主数据创建日期
+        business_terms: [创建日期, 录入日期]
+
+  # ── 4. SAP-ERP LIKP 交货单抬头（无 Parquet，按 SAP 标准字段） ─────────
+  - platform: sap_erp
+    table: likp
+    table_cn: 交货单抬头
+    columns:
+      - column: VBELN
+        cn_name: 交货单号
+        description: SAP 交货单唯一编号（10 位）
+        business_terms: [交货单号, 送货单号]
+      - column: ERDAT
+        cn_name: 交货单创建日期
+        description: 交货单创建日期
+        business_terms: [交货日期, 发货日期]
+      - column: KUNNR
+        cn_name: 收货客户编号
+        description: 收货客户编码（关联 KNA1）
+        business_terms: [客户编号, 收货方]
+      - column: WADAT
+        cn_name: 计划发货日期
+        description: 计划发货过账日期
+        business_terms: [发货日期, 计划交货日]
+      - column: LFDAT
+        cn_name: 计划到货日期
+        description: 计划送达客户日期
+        business_terms: [到货日期, 计划到达日]
+      - column: LFART
+        cn_name: 交货单类型
+        description: 交货单类型代码
+        business_terms: [交货类型, 发货类型]
+      - column: VKBUR
+        cn_name: 销售办事处
+        description: SAP 销售办事处代码
+        business_terms: [办事处, 发货点]
+
+  # ── 5. SAP-ERP LIPS 交货单行项目（无 Parquet，按 SAP 标准字段） ────────
+  - platform: sap_erp
+    table: lips
+    table_cn: 交货单行项目
+    columns:
+      - column: VBELN
+        cn_name: 交货单号
+        description: 关联 LIKP-VBELN 交货单抬头
+        business_terms: [交货单号, 送货单号]
+      - column: POSNR
+        cn_name: 交货行项目号
+        description: 交货单行项目编号
+        business_terms: [行号, 交货行号]
+      - column: MATNR
+        cn_name: 物料编码
+        description: 交货物料编码
+        business_terms: [物料号, 物料编码]
+      - column: LFIMG
+        cn_name: 实际交货数量
+        description: 交货单实际交货数量
+        business_terms: [交货数量, 实际数量]
+      - column: MEINS
+        cn_name: 计量单位
+        description: 交货计量单位
+        business_terms: [单位, 计量单位]
+      - column: CHARG
+        cn_name: 批次号
+        description: 交货批次号
+        business_terms: [批次, 批号]
+
+  # ── 6. SAP-ERP MARA 物料主数据（无 Parquet，按 SAP 标准字段） ──────────
+  - platform: sap_erp
+    table: mara
+    table_cn: 物料主数据
+    columns:
+      - column: MATNR
+        cn_name: 物料编码
+        description: SAP 物料唯一编号（9 位数字 501XXXXXX 系列）
+        business_terms: [物料号, 物料编码]
+      - column: MAKTX
+        cn_name: 物料描述
+        description: 物料中文描述
+        business_terms: [物料名称, 物料描述]
+      - column: MATKL
+        cn_name: 物料组
+        description: SAP 物料组代码
+        business_terms: [物料组, 分类]
+      - column: MTART
+        cn_name: 物料类型
+        description: SAP 物料类型代码
+        business_terms: [物料类型]
+      - column: MEINS
+        cn_name: 基本计量单位
+        description: 物料基本计量单位
+        business_terms: [基本单位, 计量单位]
+      - column: BRGEW
+        cn_name: 毛重
+        description: 物料毛重
+        business_terms: [毛重, 重量]
+      - column: NTGEW
+        cn_name: 净重
+        description: 物料净重
+        business_terms: [净重]
+
+  # ── 7. PI-System tags 时序标签（5 字段，data 已核验） ──────────────────
+  - platform: pi_system
+    table: tags
+    table_cn: PI时序标签数据
+    columns:
+      - column: tag
+        cn_name: 标签名
+        description: PI 时序标签名（命名规则：{矿井}_{工作面}_{传感器类型}）
+        business_terms: [传感器编号, 测点编号, 标签]
+      - column: timestamp
+        cn_name: 采集时间戳
+        description: 传感器采集时间（ISO 格式）
+        business_terms: [采集时间, 时间戳]
+      - column: value
+        cn_name: 传感器读数
+        description: 传感器采集数值（单位视传感器类型而定）
+        business_terms: [测量值, 读数, 数值]
+      - column: status
+        cn_name: 数据状态码
+        description: PI 标签数据质量码
+        business_terms: [状态码, 质量码]
+        value_mappings:
+          "0": 正常数据
+          "-1": 设备掉线
+      - column: mine
+        cn_name: 矿井编码
+        description: 矿井主数据编码（与 LIMS/SAP 统一为 M001-M005）
+        business_terms: [矿井编号, 矿别]
+      - column: face
+        cn_name: 工作面编码
+        description: 采煤工作面（命名：{矿井}_FACE_{A-E}）
+        business_terms: [工作面, 采面]
+
+  # ── 8. LIMS samples 煤质化验样品（6 核心字段，data 已核验） ────────────
+  - platform: lims
+    table: samples
+    table_cn: 煤质化验样品
+    columns:
+      - column: SAMPLE_ID
+        cn_name: 样品编号
+        description: LIMS 样品唯一编号
+        business_terms: [样品号, 化验编号]
+      - column: MINE_CODE
+        cn_name: 矿井编码
+        description: 4 位矿井编码（M001-M005 统一标准）
+        business_terms: [矿井编号, 矿别]
+        value_mappings:
+          M001: 鄂尔多斯一号煤矿
+          M002: 榆林李家沟煤矿
+          M003: 朔州安太堡煤矿
+          M004: 吕梁庞庞塔煤矿
+          M005: 晋城寺河煤矿
+      - column: SAMPLE_TYPE
+        cn_name: 煤种
+        description: 煤的种类（业务标准 C01=原煤/C02=精煤/C03=中煤/C04=矸石/C05=洗煤）
+        business_terms: [煤的种类, 煤炭类型]
+        value_mappings:
+          原煤: 原煤
+          精煤: 精煤
+          中煤: 中煤
+          矸石: 矸石
+          洗煤: 洗煤
+      - column: AD
+        cn_name: 灰分
+        description: 煤样空气干燥基灰分（%）
+        business_terms: [灰分, 灰分含量, AD灰分]
+      - column: VD
+        cn_name: 挥发分
+        description: 煤样空气干燥基挥发分（%）
+        business_terms: [挥发分, VD挥发分]
+      - column: QGR_AD
+        cn_name: 发热量
+        description: 煤样空气干燥基高位发热量（MJ/kg）
+        business_terms: [发热量, 热值, QGR]
+      - column: TEST_LAB
+        cn_name: 化验室
+        description: 出具化验报告的化验室
+        business_terms: [化验室, 检测单位]
+        value_mappings:
+          中心化验室: 集团中心化验室
+          一分室: 鄂尔多斯矿区化验室
+          二分室: 榆林矿区化验室
+      - column: REPORT_STATUS
+        cn_name: 报告状态
+        description: 化验报告状态
+        business_terms: [报告状态, 审核状态]
+        value_mappings:
+          待审核: 化验中待审核
+          已审核: 化验完成已审核
+          已发布: 正式发布
+
+  # ── 9. OA doc_flow 文档流转记录（4 关键字段，data 已核验） ────────────
+  - platform: oa
+    table: doc_flow
+    table_cn: OA 文档流转记录
+    columns:
+      - column: DOC_NO
+        cn_name: 单据编号
+        description: OA 流程单据编号（HT+YYYY+6 位 或 DOC+YYYY+XXXXX）
+        business_terms: [单号, 流程号]
+      - column: FLOW_TYPE
+        cn_name: 流程类型
+        description: OA 审批流程类型
+        business_terms: [流程类型, 审批类型]
+        value_mappings:
+          请假: 请假申请
+          出差: 出差申请
+          报销: 费用报销
+          用车申请: 用车申请
+          印章使用: 印章使用申请
+          采购申请: 采购申请
+          付款申请: 付款申请
+          公文审批: 公文审批
+      - column: STATUS
+        cn_name: 流程状态
+        description: OA 流程当前状态
+        business_terms: [流程状态, 审批状态]
+        value_mappings:
+          审批中: 审批进行中
+          已完成: 审批通过已完成
+          已驳回: 审批驳回
+          已撤销: 流程撤销
+      - column: AMOUNT
+        cn_name: 申请金额
+        description: 流程关联金额（付款/报销/采购等）
+        business_terms: [金额, 申请金额]
+      - column: INITIATOR_DEPT
+        cn_name: 发起部门
+        description: 流程发起人所在部门
+        business_terms: [发起部门, 申请部门]
+        value_mappings:
+          销售部: 销售部
+          生产部: 生产部
+          安全部: 安全部
+          财务部: 财务部
+          采购部: 采购部
+          技术部: 技术部
+          综合办: 综合办公室
+          机电队: 机电队
+
+  # ── 10. OA contract 合同记录（无 Parquet，按 OA 业务字段） ─────────────
+  - platform: oa
+    table: contract
+    table_cn: 合同记录
+    columns:
+      - column: CONTRACT_NO
+        cn_name: 合同编号
+        description: 合同唯一编号（HT+YYYY+6 位）
+        business_terms: [合同号, 合同编码]
+      - column: CONTRACT_TYPE
+        cn_name: 合同类型
+        description: 合同分类（销售/采购/运输/租赁等）
+        business_terms: [合同类型, 合同分类]
+      - column: SIGN_DATE
+        cn_name: 签订日期
+        description: 合同签订日期
+        business_terms: [签订日期, 签约日]
+      - column: PARTY_B
+        cn_name: 乙方
+        description: 合同对方（客户/供应商）名称
+        business_terms: [乙方, 对方单位]
+      - column: AMOUNT
+        cn_name: 合同金额
+        description: 合同总金额
+        business_terms: [合同金额, 总价]
+      - column: STATUS
+        cn_name: 合同状态
+        description: 合同当前状态（草拟/审批中/生效/终止）
+        business_terms: [合同状态, 履约状态]
+
+  # ── 11. OA meeting 会议记录（无 Parquet，按 OA 业务字段） ──────────────
+  - platform: oa
+    table: meeting
+    table_cn: 会议记录
+    columns:
+      - column: MEETING_ID
+        cn_name: 会议编号
+        description: 会议记录唯一编号
+        business_terms: [会议号, 会议编码]
+      - column: MEETING_TITLE
+        cn_name: 会议主题
+        description: 会议主题/标题
+        business_terms: [会议主题, 议题]
+      - column: MEETING_DATE
+        cn_name: 会议日期
+        description: 会议召开日期
+        business_terms: [会议日期, 召开日]
+      - column: HOST
+        cn_name: 主持人
+        description: 会议主持人
+        business_terms: [主持人, 召集人]
+      - column: ATTENDEES
+        cn_name: 参会人
+        description: 参会人员名单
+        business_terms: [参会人, 与会人员]
+      - column: MINUTES
+        cn_name: 会议纪要
+        description: 会议纪要正文
+        business_terms: [会议纪要, 纪要内容]
+
+  # ── 12. SCADA equipment_status 设备状态（无 Parquet，按 SCADA 字段） ───
+  - platform: scada
+    table: equipment_status
+    table_cn: SCADA 设备状态
+    columns:
+      - column: EQUIPMENT_ID
+        cn_name: 设备编号
+        description: SCADA 设备唯一编号
+        business_terms: [设备号, 设备编码]
+      - column: EQUIPMENT_TYPE
+        cn_name: 设备类型
+        description: 设备类型（皮带机/排水泵/提升机等）
+        business_terms: [设备类型, 设备分类]
+      - column: STATUS
+        cn_name: 设备状态
+        description: 设备当前运行状态
+        business_terms: [设备状态, 运行状态]
+      - column: MINE_CODE
+        cn_name: 所属矿井
+        description: 设备所属矿井（M001-M005）
+        business_terms: [矿井, 所属矿井]
+      - column: TIMESTAMP
+        cn_name: 状态时间戳
+        description: 状态变更时间戳
+        business_terms: [时间戳, 状态时间]
+      - column: RUN_HOURS
+        cn_name: 累计运行小时数
+        description: 设备累计运行小时数
+        business_terms: [运行小时, 累计运行时长]
+
+  # ── 13. DWD dwd_vbak 清洗后销售订单（5 核心字段） ──────────────────────
+  - platform: dwd
+    table: vbak
+    table_cn: 销售订单清洗表
+    columns:
+      - column: VBELN
+        cn_name: 销售凭证号
+        description: 清洗后销售订单号（已去空/去重/大写规范化）
+        business_terms: [销售订单号, 订单号]
+      - column: KUNNR
+        cn_name: 客户编号
+        description: 清洗后客户号（已去前导零）
+        business_terms: [客户编号, 客户号]
+      - column: AUART
+        cn_name: 销售凭证类型
+        description: 清洗后订单类型
+        business_terms: [订单类型]
+      - column: NETWR
+        cn_name: 销售订单净金额
+        description: 清洗后订单金额
+        business_terms: [销售金额, 订单金额]
+      - column: ERDAT
+        cn_name: 凭证创建日期
+        description: 清洗后订单日期（已转 ISO 格式）
+        business_terms: [订单日期, 创建日期]
+
+  # ── 14. DWD dwd_tags 清洗后 PI 时序（3 字段，data 已核验） ─────────────
+  - platform: dwd
+    table: tags
+    table_cn: 清洗后 PI 时序标签
+    columns:
+      - column: tag
+        cn_name: 标签名
+        description: 清洗后 PI 标签名
+        business_terms: [传感器编号, 测点]
+      - column: timestamp
+        cn_name: 采集时间戳
+        description: 清洗后采集时间（已补缺失/已规范化）
+        business_terms: [采集时间, 时间戳]
+      - column: value
+        cn_name: 传感器读数
+        description: 清洗后传感器读数
+        business_terms: [测量值, 读数]
+      - column: mine
+        cn_name: 矿井编码
+        description: 清洗后矿井编码
+        business_terms: [矿井编号, 矿别]
+
+  # ── 15. DWD dwd_samples 清洗后 LIMS 样品（3 字段，data 已核验） ────────
+  - platform: dwd
+    table: samples
+    table_cn: 清洗后 LIMS 煤质样品
+    columns:
+      - column: SAMPLE_ID
+        cn_name: 样品编号
+        description: 清洗后样品号
+        business_terms: [样品号, 化验编号]
+      - column: MINE_CODE
+        cn_name: 矿井编码
+        description: 清洗后矿井编码（4 位统一）
+        business_terms: [矿井编号, 矿别]
+        value_mappings:
+          M001: 鄂尔多斯一号煤矿
+          M002: 榆林李家沟煤矿
+          M003: 朔州安太堡煤矿
+          M004: 吕梁庞庞塔煤矿
+          M005: 晋城寺河煤矿
+      - column: SAMPLE_TYPE
+        cn_name: 煤种
+        description: 清洗后煤种
+        business_terms: [煤的种类, 煤炭类型]
+        value_mappings:
+          原煤: 原煤
+          精煤: 精煤
+          中煤: 中煤
+          矸石: 矸石
+          洗煤: 洗煤
+      - column: AD
+        cn_name: 灰分
+        description: 清洗后灰分
+        business_terms: [灰分, 灰分含量]
+
+  # ── 16. DWA dwa_sales_daily 日销售汇总（3 字段，data 已核验） ──────────
+  - platform: dwa
+    table: dwa_sales_daily
+    table_cn: 日销售汇总宽表
+    columns:
+      - column: sale_date
+        cn_name: 销售日期
+        description: 销售日期（ISO YYYY-MM-DD）
+        business_terms: [销售日期, 日期, 订单日期]
+      - column: order_count
+        cn_name: 订单数
+        description: 当日销售订单总数
+        business_terms: [订单数, 订单笔数, 销售单数]
+      - column: customer_count
+        cn_name: 客户数
+        description: 当日下单客户数（去重）
+        business_terms: [客户数, 下单客户数]
+      - column: total_amount
+        cn_name: 销售总金额
+        description: 当日销售订单总金额（CNY）
+        business_terms: [销售总额, 销售金额, 销售额]
+      - column: avg_order_amount
+        cn_name: 客单价
+        description: 当日单订单平均金额
+        business_terms: [客单价, 平均订单金额, ARPU]
+
+  # ── 17. DWA dwa_tag_alarm 传感器告警汇总（5 字段，data 已核验） ────────
+  - platform: dwa
+    table: dwa_tag_alarm
+    table_cn: 传感器告警汇总
+    columns:
+      - column: tag
+        cn_name: 标签名
+        description: 传感器标签名
+        business_terms: [传感器编号, 测点]
+      - column: mine
+        cn_name: 矿井编码
+        description: 所属矿井
+        business_terms: [矿井编号, 矿别]
+        value_mappings:
+          M001: 鄂尔多斯一号煤矿
+          M002: 榆林李家沟煤矿
+          M003: 朔州安太堡煤矿
+          M004: 吕梁庞庞塔煤矿
+          M005: 晋城寺河煤矿
+      - column: face
+        cn_name: 工作面
+        description: 采煤工作面
+        business_terms: [工作面, 采面]
+      - column: total_records
+        cn_name: 总采样条数
+        description: 该标签累计采样条数
+        business_terms: [采样数, 记录数]
+      - column: missing_count
+        cn_name: 缺失条数
+        description: 该标签缺失数据条数（设备掉线）
+        business_terms: [缺失数, 掉线条数]
+      - column: high_value_count
+        cn_name: 超阈值条数
+        description: 数值超出报警阈值的条数
+        business_terms: [超标数, 告警次数]
+
+  # ── 18. DWA dwa_coal_quality 月度煤质汇总（6 字段，data 已核验） ────────
+  - platform: dwa
+    table: dwa_coal_quality
+    table_cn: 月度煤质汇总
+    columns:
+      - column: MINE_CODE
+        cn_name: 矿井编码
+        description: 矿井主数据编码
+        business_terms: [矿井编号, 矿别]
+        value_mappings:
+          M001: 鄂尔多斯一号煤矿
+          M002: 榆林李家沟煤矿
+          M003: 朔州安太堡煤矿
+          M004: 吕梁庞庞塔煤矿
+          M005: 晋城寺河煤矿
+      - column: MINE_NAME
+        cn_name: 矿井名称
+        description: 矿井全称
+        business_terms: [矿井名称, 矿名]
+      - column: month
+        cn_name: 月份
+        description: 统计月份（YYYY-MM）
+        business_terms: [月份, 统计月份]
+      - column: SAMPLE_TYPE
+        cn_name: 煤种
+        description: 煤的种类
+        business_terms: [煤的种类, 煤炭类型]
+        value_mappings:
+          原煤: 原煤
+          精煤: 精煤
+          中煤: 中煤
+          矸石: 矸石
+          洗煤: 洗煤
+      - column: sample_count
+        cn_name: 样品数
+        description: 月度样品数
+        business_terms: [样品数, 化验次数]
+      - column: avg_ash_content
+        cn_name: 平均灰分
+        description: 月度平均灰分（%）
+        business_terms: [平均灰分, 灰分均值, AD均值]
+      - column: avg_gross_calorific
+        cn_name: 平均发热量
+        description: 月度平均发热量（MJ/kg）
+        business_terms: [平均发热量, 热值均值, QGR均值]
+
+  # ── 19. DWA dwa_sales_production 跨系统产销宽表（5 字段，data 已核验）
+  - platform: dwa
+    table: dwa_sales_production
+    table_cn: 跨系统产销宽表
+    columns:
+      - column: VBELN
+        cn_name: 销售凭证号
+        description: SAP 销售订单号
+        business_terms: [销售订单号, 订单号]
+      - column: KUNNR
+        cn_name: 客户编号
+        description: 客户号（来自 SAP VBAK/KNA1）
+        business_terms: [客户编号, 客户号]
+      - column: customer_name
+        cn_name: 客户名称
+        description: 客户公司全称（来自 KNA1）
+        business_terms: [客户名称, 公司名]
+      - column: mine_code
+        cn_name: 矿井编码
+        description: 关联矿井（来自 LIMS/PI）
+        business_terms: [矿井编号, 矿别]
+        value_mappings:
+          M001: 鄂尔多斯一号煤矿
+          M002: 榆林李家沟煤矿
+          M003: 朔州安太堡煤矿
+          M004: 吕梁庞庞塔煤矿
+          M005: 晋城寺河煤矿
+      - column: face
+        cn_name: 工作面
+        description: 采煤工作面（来自 PI）
+        business_terms: [工作面, 采面]
+      - column: daily_production
+        cn_name: 日产量
+        description: 当日产量（吨，来自 PI 聚合）
+        business_terms: [日产量, 产量, 产煤量]
+      - column: ash_content
+        cn_name: 灰分
+        description: 关联订单的煤质灰分（来自 LIMS）
+        business_terms: [灰分, 灰分含量]
+      - column: calorific
+        cn_name: 发热量
+        description: 关联订单的发热量（来自 LIMS）
+        business_terms: [发热量, 热值]
+      - column: NETWR
+        cn_name: 销售金额
+        description: 订单金额（CNY）
+        business_terms: [销售金额, 订单金额, 销售额]

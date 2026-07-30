@@ -4,6 +4,7 @@ Single source of truth for the 12 datasets, their Chinese names, owners,
 and security classification. Imported by both the teaching notebook
 (module1.ipynb) and the screenshot script.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -76,7 +77,7 @@ def build_asset_catalog(data_root: str | Path) -> pd.DataFrame:
     """扫描 data_root 下的 Parquet，构建资产目录 DataFrame。
 
     Args:
-        data_root: 包含 `{system}/**/*.parquet` 的根目录。
+        data_root: 包含 `{system}/**/*.parquet` 的
 
     Returns:
         DataFrame，列：系统、表/数据集、记录数、存储大小(MB)、说明、Owner。

@@ -12,10 +12,12 @@ Why in-process import instead of subprocess?
 - Avoids 2-3s subprocess startup overhead per scan.
 - The CLI's RULES dict remains the single source of truth (we import it).
 """
+
 from __future__ import annotations
 
 import importlib.util
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +42,8 @@ def _load_cli_module():
     if _cli_module is not None:
         return _cli_module
     spec = importlib.util.spec_from_file_location("_ge_cli", str(_CLI_SCRIPT))
+    if spec is None or spec.loader is None:
+        raise FileNotFoundError(f"Could not load module spec for {_CLI_SCRIPT}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     _cli_module = mod
@@ -83,7 +87,9 @@ def run_ge_scan(
         )
 
     cli = _load_cli_module()
-    systems_to_scan = cli.SYSTEMS if system_arg == "all" else {system_arg: cli.SYSTEMS[system_arg]}
+    systems_to_scan = (
+        cli.SYSTEMS if system_arg == "all" else {system_arg: cli.SYSTEMS[system_arg]}
+    )
 
     t0 = time.time()
     all_results: dict[str, list[dict[str, Any]]] = {}
@@ -94,18 +100,20 @@ def run_ge_scan(
                 res = cli.run_check(sys_name, table, filepath)
                 sys_results.append(_normalize_result(res))
             except Exception as e:
-                sys_results.append({
-                    "table": table,
-                    "error": str(e),
-                    "passed": 0,
-                    "failed": 0,
-                    "total": 0,
-                    "pass_rate": 0,
-                    "score": 0,
-                    "grade": "?",
-                    "sample_note": "",
-                    "details": [],
-                })
+                sys_results.append(
+                    {
+                        "table": table,
+                        "error": str(e),
+                        "passed": 0,
+                        "failed": 0,
+                        "total": 0,
+                        "pass_rate": 0,
+                        "score": 0,
+                        "grade": "?",
+                        "sample_note": "",
+                        "details": [],
+                    }
+                )
         all_results[sys_name] = sys_results
 
     summary = []
@@ -115,13 +123,15 @@ def run_ge_scan(
         total = total_p + total_f
         rate = total_p / total * 100 if total > 0 else 0
         grade = "A" if rate >= 95 else "B" if rate >= 85 else "C" if rate >= 70 else "D"
-        summary.append({
-            "system": sys_name,
-            "score": round(rate, 1),
-            "grade": grade,
-            "pass_rate": round(rate, 1),
-            "failed": int(total_f),
-        })
+        summary.append(
+            {
+                "system": sys_name,
+                "score": round(rate, 1),
+                "grade": grade,
+                "pass_rate": round(rate, 1),
+                "failed": int(total_f),
+            }
+        )
 
     avg = sum(s["score"] for s in summary) / len(summary) if summary else 0
     elapsed = round(time.time() - t0, 1)
@@ -136,6 +146,7 @@ def run_ge_scan(
 
     if output_json is not None:
         import json
+
         json_path = Path(output_json)
         json_path.parent.mkdir(parents=True, exist_ok=True)
         with json_path.open("w", encoding="utf-8") as f:
@@ -160,6 +171,7 @@ def parse_ge_report(json_path: str | Path) -> dict[str, Any]:
         }
     """
     import json
+
     json_path = Path(json_path)
     with json_path.open("r", encoding="utf-8") as f:
         return json.load(f)

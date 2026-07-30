@@ -78,16 +78,19 @@ def assert_aspects(records: list) -> tuple:
 
 
 def assert_opensearch_indexed(records: list, max_wait_s: int = 30) -> tuple:
-    """轮询 OpenSearch，断言每条 downstream dataset 已被索引（容忍 MAE→actions 延迟）。"""
+    """轮询 OpenSearch，断言每条 downstream dataset 已被索引（容忍 MAE→actions 延迟）。
+
+    按 URN 精确匹配（dataset URN 含 (urn:li:dataPlatform:{plat},{tbl},PROD)），
+    比 `name` 字段更可靠（部分 dwa/dwd dataset 索引时 name 字段为空）。
+    """
     deadline = time.monotonic() + max_wait_s
-    missing = {rec["dataset"] for rec in records}
+    missing = {rec["dataset"]: rec["urn"] for rec in records}
     last_err = None
     while missing and time.monotonic() < deadline:
         try:
-            for ds in list(missing):
-                _platform, table = ds.split(".", 1)
-                # 用 match 查 name（不同 DataHub 版本字段名/分词不同，match 最稳）
-                q = {"query": {"match": {"name": table}}}
+            for ds, urn in list(missing.items()):
+                # 用 URN keyword 精确查
+                q = {"query": {"term": {"urn": urn}}}
                 r = requests.post(
                     f"{OS_HOST}/datasetindex_v2/_search",
                     json=q, timeout=TIMEOUT,
@@ -95,12 +98,12 @@ def assert_opensearch_indexed(records: list, max_wait_s: int = 30) -> tuple:
                 if r.status_code == 200:
                     hits = r.json().get("hits", {}).get("hits", [])
                     if hits:
-                        missing.discard(ds)
+                        del missing[ds]
         except requests.exceptions.RequestException as e:
             last_err = e
         if missing:
             time.sleep(2)
-    return list(missing), last_err
+    return list(missing.keys()), last_err
 
 
 def purge_aspects(recipe_path: str) -> int:

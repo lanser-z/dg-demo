@@ -32,6 +32,8 @@ data/historical/
 data/incremental/
 data/lakehouse/
 data/datahub-gms-resources/
+data/quality_reports/
+data/quality_*
 
 # ============================================================
 # Secrets (do not commit)

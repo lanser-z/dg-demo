@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import numpy as np
 from deltalake import DeltaTable
 from deltalake.writer import write_deltalake
 
@@ -79,38 +80,45 @@ def cleaning_stats(before: pd.DataFrame, after: pd.DataFrame) -> dict[str, Any]:
 def mark_vbap_valid_link(vbap: pd.DataFrame, vbak: pd.DataFrame) -> pd.DataFrame:
     """为 vbap 加 IS_VALID_LINK 布尔列：VBELN 是否存在于 vbak.VBELN 集合。
 
-    孤儿行（VBELN=0000000000 等）标记为 False，但不删除（下游可自行决策）。
+    性能优化（vs 原版）：dtype 一致时跳过 astype(str)；assign 替代 copy。
+    NaN VBELN → False（valid 已 dropna；pd.isin 对 NaN 永远 False，避免旧版 astype(str) 把 NaN 变字符串"nan"误判）。
     """
-    df = vbap.copy()
-    valid_vbeln = set(vbak["VBELN"].dropna().astype(str))
-    df["IS_VALID_LINK"] = df["VBELN"].astype(str).isin(valid_vbeln)
-    return df
+    valid_vbeln = vbak["VBELN"].dropna()
+    vbap_vbeln = vbap["VBELN"]
+    if vbap_vbeln.dtype != valid_vbeln.dtype:
+        valid_vbeln = valid_vbeln.astype(str)
+        vbap_vbeln = vbap_vbeln.astype(str)
+    return vbap.assign(
+        IS_VALID_LINK=vbap_vbeln.isin(frozenset(valid_vbeln))
+    )
 
 
 # ============================================================
-# 智能修复 2：PI 异常值线性插值（改值，不删行）
+# 智能修复 2：PI 异常值 per-tag P99.5 截断（改值，不删行，保留 value_original）
 # ============================================================
 def repair_pi_anomalies(pi_df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """对超 3x 中位数的 value 用线性插值替代（复用模块二阈值逻辑）。
+    """对每个 tag 独立按 P99.5 截断异常突升（不插值、不删行、不伪造数据）。
 
-    先 sort_values(timestamp) + groupby(tag) 再 interpolate，避免乱序插值。
-    返回 (修复后 df, 修复行数)。不删行。
+    替代原"全局 3×median + 线性插值"方案，理由：
+    - 不同 tag 量程差异巨大（甲烷 vs 流量差几个数量级），全局阈值不科学
+    - 插值会构造"假过渡过程"，对 spike 类异常不诚实
+    - 截断 + 保留 value_original：下游可审计，异常率定义清晰（≈0.5%）
+
+    返回 (修复后 df, 修复行数)。df 中新增 value_original 列保留原始值。
     """
     df = pi_df.copy()
-    df = df.sort_values("timestamp")
-    median_v = df["value"].median()
-    if pd.isna(median_v) or median_v <= 0:
-        return df, 0
-    threshold = median_v * 3
-    anomaly_mask = df["value"] > threshold
+    df = df.sort_values(["tag", "timestamp"]).reset_index(drop=True)
+
+    df["value_original"] = df["value"].copy()
+
+    upper_per_tag = df.groupby("tag")["value"].quantile(0.995)
+    upper = df["tag"].map(upper_per_tag)
+
+    anomaly_mask = df["value"] > upper
     n_fixed = int(anomaly_mask.sum())
-    if n_fixed == 0:
-        return df, 0
-    # 把异常值置 NaN，再按 tag 分组线性插值
-    df.loc[anomaly_mask, "value"] = pd.NA
-    df["value"] = df.groupby("tag")["value"].transform(
-        lambda s: s.interpolate(method="linear", limit_direction="both")
-    )
+    if n_fixed > 0:
+        df.loc[anomaly_mask, "value"] = upper[anomaly_mask]
+
     return df, n_fixed
 
 

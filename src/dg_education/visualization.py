@@ -8,6 +8,7 @@ Each `plot_*` function:
 The notebook uses these to keep code cells small (小白 should see at most
 5-10 lines of plotting code per cell, not 30 lines of inline matplotlib).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,7 +38,9 @@ def _ensure_chinese_font() -> None:
     plt.rcParams["figure.dpi"] = 100
 
 
-def plot_storage_distribution(df: pd.DataFrame, save_to: str | Path | None = None) -> plt.Figure:
+def plot_storage_distribution(
+    df: pd.DataFrame, save_to: str | Path | None = None
+) -> plt.Figure:
     """2-subplot figure: pie (存储分布) + bar (记录数).
 
     Args:
@@ -59,9 +62,13 @@ def plot_storage_distribution(df: pd.DataFrame, save_to: str | Path | None = Non
     )
     axes[0].set_title("各系统存储分布", fontsize=14, fontweight="bold")
     axes[0].text(
-        0, 0,
+        0,
+        0,
         f"总: {df['存储大小(MB)'].sum():.1f} MB",
-        ha="center", va="center", fontsize=10, color="gray",
+        ha="center",
+        va="center",
+        fontsize=10,
+        color="gray",
     )
 
     bars = axes[1].bar(
@@ -78,7 +85,9 @@ def plot_storage_distribution(df: pd.DataFrame, save_to: str | Path | None = Non
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 0.5,
             f"{rows / 1_000_000:.1f}M",
-            ha="center", va="bottom", fontsize=10,
+            ha="center",
+            va="bottom",
+            fontsize=10,
         )
     axes[1].set_ylim(0, df["记录数"].max() / 1_000_000 * 1.15)
 
@@ -142,7 +151,10 @@ def plot_quality_scorecard(
             val + 0.1,
             bar.get_y() + bar.get_height() / 2,
             f"{val:.1f}",
-            va="center", ha="left", fontsize=11, fontweight="bold",
+            va="center",
+            ha="left",
+            fontsize=11,
+            fontweight="bold",
         )
     axes[1].axvline(x=90, color="red", linestyle="--", alpha=0.7, label="告警线")
     axes[1].legend()
@@ -153,7 +165,9 @@ def plot_quality_scorecard(
     return fig
 
 
-def plot_security_levels(df: pd.DataFrame, save_to: str | Path | None = None) -> plt.Figure:
+def plot_security_levels(
+    df: pd.DataFrame, save_to: str | Path | None = None
+) -> plt.Figure:
     """Single bar chart: 4 datasets colored by security level.
 
     Args:
@@ -186,7 +200,10 @@ def plot_security_levels(df: pd.DataFrame, save_to: str | Path | None = None) ->
             bar.get_x() + bar.get_width() / 2,
             h + 1.5,
             label,
-            ha="center", va="bottom", fontsize=10, fontweight="bold",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
             color="#333333",
         )
 
@@ -213,7 +230,10 @@ def plot_business_impact(
     labels = [str(x["label"]) for x in impacts_sorted]
     values = [float(x["total_yuan"]) for x in impacts_sorted]
 
-    colors = ["#F44336" if v > 100_000 else "#FF9800" if v > 10_000 else "#4CAF50" for v in values]
+    colors = [
+        "#F44336" if v > 100_000 else "#FF9800" if v > 10_000 else "#4CAF50"
+        for v in values
+    ]
     bars = ax.barh(labels, values, color=colors, alpha=0.85, edgecolor="white")
     ax.set_xlabel("年成本（元，教学参考值）", fontsize=12)
     ax.set_title("数据质量告警业务影响（教学示意）", fontsize=14, fontweight="bold")
@@ -223,7 +243,9 @@ def plot_business_impact(
             v * 1.1,
             bar.get_y() + bar.get_height() / 2,
             f"{v:,.0f} 元",
-            va="center", ha="left", fontsize=10,
+            va="center",
+            ha="left",
+            fontsize=10,
         )
 
     plt.tight_layout()
@@ -272,8 +294,13 @@ def plot_root_cause_distribution(
         return fig
 
     max_v = max(values)
-    colors = ["#F44336" if v > max_v * 0.5 else "#FF9800" if v > max_v * 0.25 else "#4CAF50" for v in values]
-    bars = ax.barh(labels[::-1], values[::-1], color=colors, alpha=0.85, edgecolor="white")
+    colors = [
+        "#F44336" if v > max_v * 0.5 else "#FF9800" if v > max_v * 0.25 else "#4CAF50"
+        for v in values
+    ]
+    bars = ax.barh(
+        labels[::-1], values[::-1], color=colors, alpha=0.85, edgecolor="white"
+    )
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_title(title, fontsize=14, fontweight="bold")
     ax.set_xlim(0, max_v * 1.15)
@@ -282,7 +309,9 @@ def plot_root_cause_distribution(
             v + max_v * 0.01,
             bar.get_y() + bar.get_height() / 2,
             f"{v:,}",
-            va="center", ha="left", fontsize=10,
+            va="center",
+            ha="left",
+            fontsize=10,
         )
 
     plt.tight_layout()
@@ -304,10 +333,17 @@ def plot_alert_heatmap(
     _ensure_chinese_font()
     import numpy as np
 
-    fig, ax = plt.subplots(figsize=(max(8, 0.9 * len(matrix.columns) + 4), max(3, 0.7 * len(matrix.index) + 2)))
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 0.9 * len(matrix.columns) + 4),
+            max(3, 0.7 * len(matrix.index) + 2),
+        )
+    )
 
     if matrix.empty or matrix.size == 0:
-        ax.text(0.5, 0.5, "无告警数据", ha="center", va="center", fontsize=14, color="gray")
+        ax.text(
+            0.5, 0.5, "无告警数据", ha="center", va="center", fontsize=14, color="gray"
+        )
         return fig
 
     data = matrix.fillna(0).astype(float).values
@@ -319,7 +355,9 @@ def plot_alert_heatmap(
     ax.set_xticklabels(matrix.columns, rotation=30, ha="right", fontsize=10)
     ax.set_yticks(range(len(matrix.index)))
     ax.set_yticklabels(matrix.index, fontsize=10)
-    ax.set_title("数据质量告警热力图（颜色越红=越严重）", fontsize=14, fontweight="bold")
+    ax.set_title(
+        "数据质量告警热力图（颜色越红=越严重）", fontsize=14, fontweight="bold"
+    )
 
     # Annotate cells with actual values
     for i in range(data.shape[0]):
@@ -332,7 +370,16 @@ def plot_alert_heatmap(
                 label = f"{val:.0f}"
             else:
                 label = "—"
-            ax.text(j, i, label, ha="center", va="center", fontsize=9, color=text_color, fontweight="bold")
+            ax.text(
+                j,
+                i,
+                label,
+                ha="center",
+                va="center",
+                fontsize=9,
+                color=text_color,
+                fontweight="bold",
+            )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("影响行数 (log scale)", fontsize=10)
@@ -379,17 +426,43 @@ def plot_system_alert_summary(
 
     x = np.arange(len(systems))
     width = 0.35
-    axes[0].bar(x - width / 2, totals, width, label="总规则数", color="#2196F3", alpha=0.85, edgecolor="white")
-    axes[0].bar(x + width / 2, failed, width, label="失败规则数", color="#F44336", alpha=0.85, edgecolor="white")
+    axes[0].bar(
+        x - width / 2,
+        totals,
+        width,
+        label="总规则数",
+        color="#2196F3",
+        alpha=0.85,
+        edgecolor="white",
+    )
+    axes[0].bar(
+        x + width / 2,
+        failed,
+        width,
+        label="失败规则数",
+        color="#F44336",
+        alpha=0.85,
+        edgecolor="white",
+    )
     axes[0].set_xticks(x)
     axes[0].set_xticklabels(systems, fontsize=11)
     axes[0].set_ylabel("规则数", fontsize=12)
     axes[0].set_title("各系统 GE 规则数 vs 失败数", fontsize=14, fontweight="bold")
     axes[0].legend(fontsize=10)
     for i, (t, f) in enumerate(zip(totals, failed)):
-        axes[0].text(i - width / 2, t + 0.3, str(t), ha="center", fontsize=9, fontweight="bold")
+        axes[0].text(
+            i - width / 2, t + 0.3, str(t), ha="center", fontsize=9, fontweight="bold"
+        )
         if f > 0:
-            axes[0].text(i + width / 2, f + 0.3, str(f), ha="center", fontsize=9, fontweight="bold", color="#F44336")
+            axes[0].text(
+                i + width / 2,
+                f + 0.3,
+                str(f),
+                ha="center",
+                fontsize=9,
+                fontweight="bold",
+                color="#F44336",
+            )
 
     # Right plot: overall score with grade color
     grade_colors = []
@@ -402,19 +475,26 @@ def plot_system_alert_summary(
             grade_colors.append("#FF9800")
         else:
             grade_colors.append("#F44336")
-    bars = axes[1].bar(systems, scores, color=grade_colors, alpha=0.85, edgecolor="white", linewidth=2)
+    bars = axes[1].bar(
+        systems, scores, color=grade_colors, alpha=0.85, edgecolor="white", linewidth=2
+    )
     axes[1].set_ylim(0, 105)
     axes[1].set_ylabel("综合得分", fontsize=12)
     axes[1].set_title("各系统综合质量评分", fontsize=14, fontweight="bold")
     axes[1].axhline(y=90, color="red", linestyle="--", alpha=0.5, label="告警线(90分)")
-    axes[1].axhline(y=70, color="orange", linestyle="--", alpha=0.5, label="及格线(70分)")
+    axes[1].axhline(
+        y=70, color="orange", linestyle="--", alpha=0.5, label="及格线(70分)"
+    )
     axes[1].legend(fontsize=9, loc="lower right")
     for bar, sc in zip(bars, scores):
         axes[1].text(
             bar.get_x() + bar.get_width() / 2,
             sc + 1.5,
             f"{sc:.1f}",
-            ha="center", va="bottom", fontsize=11, fontweight="bold",
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            fontweight="bold",
         )
 
     plt.tight_layout()
@@ -466,27 +546,58 @@ def plot_lineage_graph(graph, save_to: str | Path | None = None) -> plt.Figure:
         nodes_sorted = sorted(nodes)
         n_count = len(nodes_sorted)
         for i, node in enumerate(nodes_sorted):
-            x = (i - (n_count - 1) / 2)  # 居中均布
+            x = i - (n_count - 1) / 2  # 居中均布
             pos[node] = (x, -layer)
 
     fig, ax = plt.subplots(figsize=(12, 7))
 
-    node_colors = [_LAYER_COLORS.get(n.split(".", 1)[0], "#9E9E9E") for n in graph.nodes]
-    nx.draw_networkx_nodes(graph, pos, ax=ax, node_color=node_colors,
-                           node_size=2200, alpha=0.9, edgecolors="white", linewidths=2)
-    nx.draw_networkx_edges(graph, pos, ax=ax, edge_color="#666666",
-                           arrows=True, arrowsize=22, arrowstyle="-|>",
-                           connectionstyle="arc3,rad=0.08", width=1.8, alpha=0.7)
+    node_colors = [
+        _LAYER_COLORS.get(n.split(".", 1)[0], "#9E9E9E") for n in graph.nodes
+    ]
+    nx.draw_networkx_nodes(
+        graph,
+        pos,
+        ax=ax,
+        node_color=node_colors,
+        node_size=2200,
+        alpha=0.9,
+        edgecolors="white",
+        linewidths=2,
+    )
+    nx.draw_networkx_edges(
+        graph,
+        pos,
+        ax=ax,
+        edge_color="#666666",
+        arrows=True,
+        arrowsize=22,
+        arrowstyle="-|>",
+        connectionstyle="arc3,rad=0.08",
+        width=1.8,
+        alpha=0.7,
+    )
     nx.draw_networkx_labels(graph, pos, ax=ax, font_size=9, font_weight="bold")
 
     # 层标注
     for layer, nodes in by_layer.items():
         platform = sorted(nodes)[0].split(".", 1)[0]
-        ax.text(-0.02, -layer, f"【{platform}】", transform=ax.get_yaxis_transform(),
-                ha="right", va="center", fontsize=11, fontweight="bold", color="#333333")
+        ax.text(
+            -0.02,
+            -layer,
+            f"【{platform}】",
+            transform=ax.get_yaxis_transform(),
+            ha="right",
+            va="center",
+            fontsize=11,
+            fontweight="bold",
+            color="#333333",
+        )
 
-    ax.set_title(f"数据血缘图（{graph.number_of_nodes()} 节点 / {graph.number_of_edges()} 条边）\n上游 → 下游，数据流向自上而下",
-                 fontsize=14, fontweight="bold")
+    ax.set_title(
+        f"数据血缘图（{graph.number_of_nodes()} 节点 / {graph.number_of_edges()} 条边）\n上游 → 下游，数据流向自上而下",
+        fontsize=14,
+        fontweight="bold",
+    )
     ax.axis("off")
     plt.tight_layout()
     if save_to:
@@ -494,7 +605,9 @@ def plot_lineage_graph(graph, save_to: str | Path | None = None) -> plt.Figure:
     return fig
 
 
-def plot_blast_radius(graph, node: str, save_to: str | Path | None = None) -> plt.Figure:
+def plot_blast_radius(
+    graph, node: str, save_to: str | Path | None = None
+) -> plt.Figure:
     """绘制某节点的下游影响面（blast-radius）条形图。
 
     横轴：下游节点名；纵轴：距离源节点的跳数（1=直接下游，2=间接…）。
@@ -517,23 +630,43 @@ def plot_blast_radius(graph, node: str, save_to: str | Path | None = None) -> pl
 
     labels = [d for d, _ in hops]
     values = [h for _, h in hops]
-    colors = ["#F44336" if h == 1 else "#FF9800" if h == 2 else "#FFC107" for h in values]
+    colors = [
+        "#F44336" if h == 1 else "#FF9800" if h == 2 else "#FFC107" for h in values
+    ]
 
     fig, ax = plt.subplots(figsize=(11, max(4, 0.6 * len(labels) + 2)))
-    bars = ax.barh(labels, values, color=colors, alpha=0.85, edgecolor="white", linewidth=2)
+    bars = ax.barh(
+        labels, values, color=colors, alpha=0.85, edgecolor="white", linewidth=2
+    )
     ax.set_xlabel("距离源节点的跳数（1=直接影响）", fontsize=12)
-    ax.set_title(f"影响面（blast-radius）：{node} 数据异常波及的下游",
-                 fontsize=14, fontweight="bold")
+    ax.set_title(
+        f"影响面（blast-radius）：{node} 数据异常波及的下游",
+        fontsize=14,
+        fontweight="bold",
+    )
     ax.invert_yaxis()
     ax.set_xticks(range(1, (max(values) if values else 1) + 1))
     for bar, v in zip(bars, values):
-        ax.text(v + 0.05, bar.get_y() + bar.get_height() / 2,
-                f"{v} 跳", va="center", fontsize=10, fontweight="bold")
+        ax.text(
+            v + 0.05,
+            bar.get_y() + bar.get_height() / 2,
+            f"{v} 跳",
+            va="center",
+            fontsize=10,
+            fontweight="bold",
+        )
 
-    ax.text(0.99, 0.02, f"共影响 {len(labels)} 个下游节点",
-            transform=ax.transAxes, ha="right", va="bottom",
-            fontsize=10, color="#555555",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="#F5F5F5", alpha=0.8))
+    ax.text(
+        0.99,
+        0.02,
+        f"共影响 {len(labels)} 个下游节点",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=10,
+        color="#555555",
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="#F5F5F5", alpha=0.8),
+    )
     plt.tight_layout()
     if save_to:
         fig.savefig(save_to, bbox_inches="tight")
@@ -543,7 +676,7 @@ def plot_blast_radius(graph, node: str, save_to: str | Path | None = None) -> pl
 # ── 模块四：清洗可视化 ────────────────────────────────────────────────
 
 
-def plot_cleaning_stats(stats: dict, save_to: str | Path | None = None) -> plt.Figure:
+def plot_cleaning_stats(stats: dict, save_to: str | Path | None = None):
     """绘制清洗剔除统计柱状图。
 
     Args:
@@ -563,20 +696,32 @@ def plot_cleaning_stats(stats: dict, save_to: str | Path | None = None) -> plt.F
     pcts = [t["dropped_pct"] for t in tables]
 
     fig, ax = plt.subplots(figsize=(11, 5))
-    bars = ax.bar(names, dropped, color="#FF5722", alpha=0.85, edgecolor="white", linewidth=2)
+    bars = ax.bar(
+        names, dropped, color="#FF5722", alpha=0.85, edgecolor="white", linewidth=2
+    )
     ax.set_ylabel("剔除行数", fontsize=12)
-    ax.set_title("各表清洗剔除行数（基础清洗：去空/去重/规范化）", fontsize=14, fontweight="bold")
+    ax.set_title(
+        "各表清洗剔除行数（基础清洗：去空/去重/规范化）", fontsize=14, fontweight="bold"
+    )
     ax.tick_params(axis="x", rotation=20)
     for bar, p in zip(bars, pcts):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                f"{p:.1f}%", ha="center", va="bottom", fontsize=10, fontweight="bold")
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            f"{p:.1f}%",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
     plt.tight_layout()
     if save_to:
         fig.savefig(save_to, bbox_inches="tight")
-    return fig
 
 
-def plot_quality_before_after(before: dict, after: dict, save_to: str | Path | None = None) -> plt.Figure:
+def plot_quality_before_after(
+    before: dict, after: dict, save_to: str | Path | None = None
+):
     """绘制清洗前后质量评分对比（双柱状）。
 
     Args:
@@ -590,11 +735,28 @@ def plot_quality_before_after(before: dict, after: dict, save_to: str | Path | N
     after_vals = [after.get(s, 0) for s in systems]
 
     import numpy as np
+
     x = np.arange(len(systems))
     width = 0.35
     fig, ax = plt.subplots(figsize=(11, 5))
-    ax.bar(x - width / 2, before_vals, width, label="清洗前(ODS)", color="#FF9800", alpha=0.85, edgecolor="white")
-    ax.bar(x + width / 2, after_vals, width, label="清洗后(DWD)", color="#4CAF50", alpha=0.85, edgecolor="white")
+    ax.bar(
+        x - width / 2,
+        before_vals,
+        width,
+        label="清洗前(ODS)",
+        color="#FF9800",
+        alpha=0.85,
+        edgecolor="white",
+    )
+    ax.bar(
+        x + width / 2,
+        after_vals,
+        width,
+        label="清洗后(DWD)",
+        color="#4CAF50",
+        alpha=0.85,
+        edgecolor="white",
+    )
     ax.set_xticks(x)
     ax.set_xticklabels(systems, fontsize=11)
     ax.set_ylabel("质量评分", fontsize=12)
@@ -604,16 +766,26 @@ def plot_quality_before_after(before: dict, after: dict, save_to: str | Path | N
     ax.axhline(y=85, color="green", linestyle="--", alpha=0.5, label="良好线(85)")
     ax.legend(fontsize=9, loc="lower right")
     for i, (b, a) in enumerate(zip(before_vals, after_vals)):
-        ax.text(i - width / 2, b + 1, f"{b:.0f}", ha="center", fontsize=9, fontweight="bold")
-        ax.text(i + width / 2, a + 1, f"{a:.0f}", ha="center", fontsize=9, fontweight="bold", color="#2E7D32")
+        ax.text(
+            i - width / 2, b + 1, f"{b:.0f}", ha="center", fontsize=9, fontweight="bold"
+        )
+        ax.text(
+            i + width / 2,
+            a + 1,
+            f"{a:.0f}",
+            ha="center",
+            fontsize=9,
+            fontweight="bold",
+            color="#2E7D32",
+        )
     plt.tight_layout()
     if save_to:
         fig.savefig(save_to, bbox_inches="tight")
-    return fig
 
 
-def plot_pi_repair_before_after(df_before, df_after, tag: str | None = None,
-                                save_to: str | Path | None = None) -> plt.Figure:
+def plot_pi_repair_before_after(
+    df_before, df_after, tag: str | None = None, save_to: str | Path | None = None
+):
     """绘制 PI 异常值插值修复前后曲线对比。
 
     Args:
@@ -625,14 +797,27 @@ def plot_pi_repair_before_after(df_before, df_after, tag: str | None = None,
     _ensure_chinese_font()
     if tag is None:
         tag = df_before["tag"].iloc[0]
-    b = df_before[df_before["tag"] == tag].sort_values("timestamp").head(200)
-    a = df_after[df_after["tag"] == tag].sort_values("timestamp").head(200)
+    b = df_before[df_before["tag"] == tag].sort_values("timestamp").head(2000)
+    a = df_after[df_after["tag"] == tag].sort_values("timestamp").head(2000)
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(range(len(b)), b["value"].values, color="#F44336", alpha=0.7,
-            linewidth=1, label="修复前（含异常突升）")
-    ax.plot(range(len(a)), a["value"].values, color="#2196F3", alpha=0.9,
-            linewidth=1.5, label="修复后（线性插值）")
+    ax.plot(
+        range(len(b)),
+        b["value"].values,
+        color="#F44336",
+        alpha=0.7,
+        linewidth=1,
+        label="修复前（含异常突升）",
+    )
+    ax.plot(
+        range(len(a)),
+        a["value"].values,
+        color="#2196F3",
+        alpha=0.9,
+        linewidth=1.5,
+        linestyle="-.",
+        label="修复后（P99.5 截断）",
+    )
     ax.set_xlabel("时间序列（前 200 点）", fontsize=12)
     ax.set_ylabel("value", fontsize=12)
     ax.set_title(f"PI 异常值插值修复前后对比 — {tag}", fontsize=14, fontweight="bold")
@@ -640,4 +825,3 @@ def plot_pi_repair_before_after(df_before, df_after, tag: str | None = None,
     plt.tight_layout()
     if save_to:
         fig.savefig(save_to, bbox_inches="tight")
-    return fig
